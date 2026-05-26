@@ -10,12 +10,33 @@ function Workspace() {
   const [saved_nodes, setSavedNodes] = useState([]);
   const [isSaved, setIsSaved] = useState(false);
   const [showModal, setShowModal] = useState(false);
+  const [showConfigModal, setShowConfigModal] = useState(false);
+  const [configNodeId, setConfigNodeId] = useState(null);
+  const [nodeConfigs, setNodeConfigs] = useState({});
+  const [ip, setIp] = useState("");
+  const [url, setUrl] = useState("");
+  const [mode, setMode] = useState("");
   const [modalMessage, setModalMessage] = useState("");
   const [modalConnections, setModalConnections] = useState([]);
   const matchingNodeIds = useRef([]);
   const rootNodeId = useRef("");
   const [connections, setConnections] = useState([]);
+  const [messages, setMessages] = useState([]);
   const [, setRenderTick] = useState(0);
+
+  // Connection Messages State
+  const [showMessagesModal, setShowMessagesModal] = useState(false);
+  const [messageLabel, setMessageLabel] = useState("");
+  const [messageSource, setMessageSource] = useState("");
+  const [messageDestination, setMessageDestination] = useState("");
+  const [messageInterface, setMessageInterface] = useState("");
+  const [messageDescription, setMessageDescription] = useState("");
+  const [messageContent, setMessageContent] = useState("");
+  const [messageType, setMessageType] = useState("");
+  const [messageProtocol, setMessageProtocol] = useState("");
+  const [fromId, setFromId] = useState("");
+  const [toId, setToId] = useState("");
+
   const token = localStorage.getItem("token");
   let workspace_id = useParams();
 
@@ -30,6 +51,26 @@ function Workspace() {
     setNodes(nodes_data.nodes);
     ref_nodes.current.push(nodes_data.nodes);
   }
+  const setNodeUnderTest = (nodeId) => {
+    setNodeConfigs(prev => ({
+      ...prev,
+
+      [nodeId]: {
+        ...prev[nodeId],
+        isUnderTest: true
+      }
+    }));
+  };
+  const resetNodeUnderTest = (nodeId) => {
+    setNodeConfigs(prev => ({
+      ...prev,
+
+      [nodeId]: {
+        ...prev[nodeId],
+        isUnderTest: false
+      }
+    }));
+  };
 
   const loadWorkspace = async () => {
     const response = await fetch(`http://localhost:8000/load_workspace/${workspace_id.id}`, {
@@ -39,8 +80,29 @@ function Workspace() {
       },
     });
     const data = await response.json();
-    console.log(data.nodes);
     setSavedNodes(data.nodes);
+    const configs = {};
+    data.nodes.forEach(node => {
+      configs[node.id] = {
+        ip: node.ip,
+        url: node.url,
+        mode: node.mode,
+        configured: node.configured,
+        isUnderTest: node.isUnderTest
+      };
+    });
+
+    setNodeConfigs(configs);
+
+    if (data.connections) {
+      const formattedConnections = data.connections.map(conn => ({
+        from: conn.from_id,
+        to: conn.to_id,
+        interface_name: conn.name
+      }));
+      setConnections(formattedConnections);
+    }
+
   }
 
   // Draw connections or background (optional)
@@ -85,8 +147,8 @@ function Workspace() {
       nodeEl.style.left = `${node.position.x}px`;
       nodeEl.style.top = `${node.position.y}px`;
       nodeEl.draggable = true;
-      nodeEl.innerHTML = `<button type="button" id="connection_${uniqueId}"
-      class="connection-btn">+</button><div class="dot" style="background-color:#1E5E74"></div><span>${node.name}</span>`;
+      nodeEl.innerHTML = `<button type="button" id="config_${uniqueId}" class="config-node-btn">⚙</button><button type="button" id="delete_${uniqueId}" class="delete-node-btn">x</button><button type="button" id="connection_${uniqueId}"
+      class="connection-btn">+</button><button type="button" id="test_${uniqueId}" class="test-node-btn">▶</button><div class="dot" style="background-color:#1E5E74"></div><span>${node.name}</span>`;
 
       nodeEl.ondragstart = (dragEvent) => {
         const elRect = nodeEl.getBoundingClientRect();
@@ -108,6 +170,50 @@ function Workspace() {
       connection.addEventListener("click", () => {
         handleConnection(uniqueId);
       });
+      const configBtn = document.getElementById(`config_${uniqueId}`);
+      if (configBtn) {
+        configBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          handleConfigNode(uniqueId);
+        });
+      }
+      const deleteBtn = document.getElementById(`delete_${uniqueId}`);
+      if (deleteBtn) {
+        deleteBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          nodeEl.remove();
+          setConnections(prev => prev.filter(c => c.from !== uniqueId && c.to !== uniqueId));
+        });
+      }
+      const testBtn = document.getElementById(`test_${uniqueId}`);
+      if (nodeConfigs[nodeEl.id].isUnderTest == true) {
+        nodeEl.dataset.isTesting = "true";
+        nodeEl.style.backgroundColor = "rgba(34, 197, 94, 0.2)";
+        testBtn.style.backgroundColor = "#ef4444";
+        testBtn.innerHTML = "■";
+        testBtn.style.paddingLeft = "0";
+      }
+      if (testBtn) {
+        testBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const isTesting = nodeEl.dataset.isTesting === "true";
+          if (isTesting) {
+            resetNodeUnderTest(nodeEl.id);
+            nodeEl.dataset.isTesting = "false";
+            nodeEl.style.backgroundColor = "var(--glass-bg)";
+            testBtn.style.backgroundColor = "#22c55e";
+            testBtn.innerHTML = "▶";
+            testBtn.style.paddingLeft = "1px";
+          } else {
+            setNodeUnderTest(nodeEl.id);
+            nodeEl.dataset.isTesting = "true";
+            nodeEl.style.backgroundColor = "rgba(34, 197, 94, 0.2)";
+            testBtn.style.backgroundColor = "#ef4444";
+            testBtn.innerHTML = "■";
+            testBtn.style.paddingLeft = "0";
+          }
+        });
+      }
     });
   }, [saved_nodes]);
 
@@ -115,27 +221,108 @@ function Workspace() {
     const canvas = canvasRef.current;
     const placedNodes = canvas.parentElement.querySelectorAll('.canvas-node');
     const w_id = workspace_id.id;
+    const existingConnections = Array.from(connections).map(conn => ({
+      rootNodeName: document.getElementById(conn.from).querySelector('span').textContent,
+      targetNodeName: document.getElementById(conn.to).querySelector('span').textContent,
+      from_id: conn.from,
+      to_id: conn.to,
+      interface_name: conn.interface_name
+    }));
     const nodesData = Array.from(placedNodes).map(node => ({
       id: node.id,
       name: node.querySelector('span').textContent,
       x: parseFloat(node.style.left),
-      y: parseFloat(node.style.top)
+      y: parseFloat(node.style.top),
+      ip: nodeConfigs[node.id]?.ip || "",
+      url: nodeConfigs[node.id]?.url || "",
+      mode: nodeConfigs[node.id]?.mode || "",
+      configured: nodeConfigs[node.id]?.configured || false,
+      isUnderTest: nodeConfigs[node.id]?.isUnderTest || false
     }));
     const response = await fetch(`http://localhost:8000/save_workspace/${w_id}`, {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ nodesData: nodesData }),
+      body: JSON.stringify({ nodesData: nodesData, existingConnections: existingConnections, messages: messages }),
     });
     const data = await response.json();
-    console.log(data.count);
     setIsSaved(true);
     setTimeout(() => {
       setIsSaved(false);
     }, 3000);
   }
 
+  const handleConfigNode = (nodeId) => {
+    setConfigNodeId(nodeId);
+    setNodeConfigs(prev => {
+      setIp(prev[nodeId]?.ip || "");
+      setUrl(prev[nodeId]?.url || "");
+      setMode(prev[nodeId]?.mode || "");
+      return prev;
+    });
+    setShowConfigModal(true);
+  };
+
+  const saveNodeConfig = () => {
+    if (configNodeId) {
+      setNodeConfigs(prev => ({
+        ...prev,
+        [configNodeId]: { ip, url, mode, configured: true, isUnderTest: false }
+      }));
+    }
+    console.log(nodeConfigs);
+    setShowConfigModal(false);
+  };
+
+  const handleConnectionMessages = (fromId, toId) => {
+    setFromId(fromId);
+    setToId(toId);
+    setShowMessagesModal(true);
+  };
+
+  const saveConnectionMessage = () => {
+    const source = document.getElementById(fromId).querySelector('span').textContent;
+    const destination = document.getElementById(toId).querySelector('span').textContent;
+    const nodeDef = ref_nodes.current[0].find(n => n.name === source);
+    let interfacesStr = "";
+    if (nodeDef && nodeDef.Interfaces) {
+      interfacesStr = nodeDef.Interfaces;
+    }
+    const interface_m = interfacesStr.split(";")
+      .find(i => i.split("-")[1] === destination)
+      .split("-")[0];
+    setMessageSource(source);
+    setMessageDestination(destination);
+    setMessageInterface(interface_m);
+    setMessages(prev => {
+
+      const alreadyExists = prev.some(msg =>
+        msg.label === messageLabel &&
+        msg.source === messageSource &&
+        msg.destination === messageDestination
+      );
+
+      if (alreadyExists) {
+        return prev;
+      }
+
+      return [
+        ...prev,
+        {
+          label: messageLabel,
+          description: messageDescription,
+          content: messageContent,
+          type: messageType,
+          protocol: messageProtocol,
+          source: messageSource,
+          destination: messageDestination,
+          interface: messageInterface
+        }
+      ];
+    });
+    setShowMessagesModal(false);
+  };
 
   const handleDragStart = (e, node) => {
     e.dataTransfer.setData("application/reactflow", JSON.stringify(node));
@@ -156,6 +343,18 @@ function Workspace() {
     const x = e.clientX - rect.left - offsetX;
     const y = e.clientY - rect.top - offsetY;
 
+    const placedNodes = Array.from(canvas.parentElement.querySelectorAll('.canvas-node'));
+    let finalName = nodeData.name;
+    if (!nodeData.isPlaced) {
+      const existingNames = placedNodes.map(node => node.querySelector('span')?.textContent);
+      let counter = 1;
+      while (existingNames.includes(finalName)) {
+        finalName = `${nodeData.name}-${counter}`;
+        counter++;
+      }
+      nodeData.name = finalName;
+    }
+
     let currentWidth = 0;
     let currentHeight = 0;
     const existingEl = nodeData.elementId ? document.getElementById(nodeData.elementId) : null;
@@ -170,15 +369,13 @@ function Workspace() {
       tempEl.className = 'canvas-node';
       tempEl.style.visibility = 'hidden';
       tempEl.style.position = 'absolute';
-      tempEl.innerHTML = `<button type="button" 
-       class="connection-btn">+</button><div class="dot" style="background-color:#1E5E74"></div><span>${nodeData.name}</span>`;
+      tempEl.innerHTML = `<button type="button" class="config-node-btn">⚙</button><button type="button" class="delete-node-btn">x</button><button type="button" 
+       class="connection-btn">+</button><button type="button" class="test-node-btn">▶</button><div class="dot" style="background-color:#1E5E74"></div><span>${nodeData.name}</span>`;
       canvas.parentElement.appendChild(tempEl);
       currentWidth = tempEl.offsetWidth;
       currentHeight = tempEl.offsetHeight;
       canvas.parentElement.removeChild(tempEl);
     }
-
-    const placedNodes = Array.from(canvas.parentElement.querySelectorAll('.canvas-node'));
     const isOverlapping = placedNodes.some(node => {
       if (node.id === nodeData.elementId) return false;
 
@@ -218,8 +415,8 @@ function Workspace() {
     nodeEl.style.left = `${x}px`;
     nodeEl.style.top = `${y}px`;
     nodeEl.draggable = true; // Make the new element draggable
-    nodeEl.innerHTML = `<button type="button" id= "connection_${uniqueId}"
-    class="connection-btn">+</button><div class="dot" style="background-color:#1E5E74"></div><span>${nodeData.name}</span>`;
+    nodeEl.innerHTML = `<button type="button" id="config_${uniqueId}" class="config-node-btn">⚙</button><button type="button" id="delete_${uniqueId}" class="delete-node-btn">x</button><button type="button" id= "connection_${uniqueId}"
+    class="connection-btn">+</button><button type="button" id="test_${uniqueId}" class="test-node-btn">▶</button><div class="dot" style="background-color:#1E5E74"></div><span>${nodeData.name}</span>`;
 
 
     // Attach drag start event to the placed node
@@ -244,6 +441,43 @@ function Workspace() {
     connection.addEventListener("click", () => {
       handleConnection(uniqueId);
     });
+    const configBtn = document.getElementById(`config_${uniqueId}`);
+    if (configBtn) {
+      configBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        handleConfigNode(uniqueId);
+      });
+    }
+    const deleteBtn = document.getElementById(`delete_${uniqueId}`);
+    if (deleteBtn) {
+      deleteBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        nodeEl.remove();
+        setConnections(prev => prev.filter(c => c.from !== uniqueId && c.to !== uniqueId));
+      });
+    }
+    const testBtn = document.getElementById(`test_${uniqueId}`);
+    if (testBtn) {
+      testBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const isTesting = nodeEl.dataset.isTesting === "true";
+        if (isTesting) {
+          resetNodeUnderTest(nodeEl.id);
+          nodeEl.dataset.isTesting = "false";
+          nodeEl.style.backgroundColor = "var(--glass-bg)";
+          testBtn.style.backgroundColor = "#22c55e";
+          testBtn.innerHTML = "▶";
+          testBtn.style.paddingLeft = "1px";
+        } else {
+          setNodeUnderTest(nodeEl.id);
+          nodeEl.dataset.isTesting = "true";
+          nodeEl.style.backgroundColor = "rgba(34, 197, 94, 0.2)";
+          testBtn.style.backgroundColor = "#ef4444";
+          testBtn.innerHTML = "■";
+          testBtn.style.paddingLeft = "0";
+        }
+      });
+    }
     // Optionally store placed nodes
   };
 
@@ -259,7 +493,7 @@ function Workspace() {
       return;
     }
     rootNodeId.current = nodeId;
-    const nodeName = selectedNode.querySelector("span").textContent;
+    const nodeName = selectedNode.querySelector("span").textContent.split("-")[0];
     const canvas = canvasRef.current;
     const parent = canvas.parentElement;
     const Allnodes = Array.from(parent.querySelectorAll('.canvas-node'));
@@ -279,10 +513,12 @@ function Workspace() {
     }
     const connection_name = Allnodes.map((node) => {
       const testNodeName = node.querySelector("span").textContent;
-      if (testNodeName === nodeName) return null;
-      return interfacesStr.split(";")
-        .filter(Boolean)
-        .filter(i => i.split("-")[1] === testNodeName);
+      if (node.id != nodeId) {
+        return interfacesStr.split(";")
+          .filter(Boolean)
+          .filter(i => i.split("-")[1] === testNodeName);
+      }
+      else return null;
     })
 
     const flatConnections = connection_name.filter(Boolean).flat();
@@ -293,7 +529,10 @@ function Workspace() {
         .filter(connection => connection.split("-")[1] === nodeName)
         .map(connection => {
           const protocol = connection.split("-")[1];
-          return `${node.id}/${protocol}`;
+          if (node.id != nodeId)
+            return `${node.id}/${protocol}`;
+          else
+            return null;
         });
     });
     matchingNodeIds.current = matchingNodeIds2;
@@ -307,7 +546,8 @@ function Workspace() {
     setShowModal(true);
   }
 
-  const createConnection = (targetNodeId, rootId) => {
+  const createConnection = (targetNodeId, rootId, interface_name) => {
+    console.log(interface_name);
     console.log(targetNodeId);
     console.log(rootId);
     // Prevent duplicate connections
@@ -315,8 +555,20 @@ function Workspace() {
       c => (c.from === rootId && c.to === targetNodeId) ||
         (c.from === targetNodeId && c.to === rootId)
     );
-    if (!exists) {
-      setConnections(prev => [...prev, { from: rootId, to: targetNodeId }]);
+    if (exists) {
+      setConnections(prev =>
+        prev.filter(
+          conn =>
+            !(
+              conn.from === rootId &&
+              conn.to === targetNodeId &&
+              conn.interface_name === interface_name
+            )
+        )
+      );
+    } else if (!exists) {
+      setConnections(prev => [...prev, { from: rootId, to: targetNodeId, interface_name }]);
+      console.log(connections);
     }
     setShowModal(false);
   };
@@ -403,6 +655,10 @@ function Workspace() {
               const fromPos = getNodeCenter(conn.from);
               const toPos = getNodeCenter(conn.to);
               if (!fromPos || !toPos) return null;
+
+              const midX = (fromPos.x + toPos.x) / 2;
+              const midY = (fromPos.y + toPos.y) / 2;
+
               return (
                 <g key={idx}>
                   {/* Glow effect */}
@@ -421,6 +677,16 @@ function Workspace() {
                   <circle cx={fromPos.x} cy={fromPos.y} r={5} className="connection-dot" />
                   {/* End dot */}
                   <circle cx={toPos.x} cy={toPos.y} r={5} className="connection-dot" />
+                  {/* Interface Name */}
+                  {conn.interface_name && (
+                    <foreignObject x={midX - 60} y={midY - 15} width={120} height={30} style={{ overflow: 'visible', pointerEvents: 'none' }}>
+                      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', width: '100%', height: '100%' }}>
+                        <button id={`${conn.from}+${conn.to}`} className="connection-label-btn" style={{ pointerEvents: 'auto' }} onClick={() => handleConnectionMessages(conn.from, conn.to)}>
+                          {conn.interface_name}
+                        </button>
+                      </div>
+                    </foreignObject>
+                  )}
                 </g>
               );
             })}
@@ -473,18 +739,29 @@ function Workspace() {
               <div name="connections" style={{ display: 'flex', gap: '10px', justifyContent: 'center', flexWrap: 'wrap', marginBottom: '24px' }}>
                 {modalConnections.map((conn, idx) => {
                   const match = matchingNodeIds.current.find(id => {
-                    const protocol = id.split("/")[1].trim().toLowerCase();
-                    const connValue = conn.split("-")[1].trim().toLowerCase();
-                    console.log("connValue", connValue);
-                    console.log("protocol", protocol);
-                    return protocol === connValue;
-                  });
+                    if (id != null) {
+                      const protocol = id.split("/")[1].trim().toLowerCase();
+                      const connValue = conn.split("-")[1].trim().toLowerCase();
 
+                      if (id.split("/")[0] != rootNodeId.current) {
+                        return protocol === connValue;
+                      }
+                      return null;
+                    }
+                    else return null;
+                  });
                   const targetNodeId = match ? match.split("/")[0] : null;
+                  const root_protocol = document.getElementById(rootNodeId.current).querySelector("span").textContent.split("-")[0].trim();
+                  const target_protocol = document.getElementById(targetNodeId).querySelector("span").textContent.split("-")[0].trim();
+                  const ref_nodes2 = ref_nodes.current[0].find(n => n.name?.trim() === root_protocol);
+                  const interface_name = ref_nodes2.Interfaces
+                    .split(";")
+                    .find(i => i.split("-")[1]?.trim() === target_protocol?.trim())
+                    .split("-")[0].trim();
                   return (
                     <button key={idx} onClick={() => {
                       if (targetNodeId) {
-                        createConnection(targetNodeId, rootNodeId.current);
+                        createConnection(targetNodeId, rootNodeId.current, interface_name);
                       }
                     }} className="save-workspace-btn" style={{ padding: '8px 16px', fontSize: '0.9rem' }}>
                       {conn}
@@ -494,6 +771,107 @@ function Workspace() {
               </div>
             )}
             <button className="save-workspace-btn" onClick={() => setShowModal(false)}>Close</button>
+          </div>
+        </div>
+      )}
+
+      {/* Config Modal */}
+      {showConfigModal && (
+        <div className="modal-overlay" style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.6)', backdropFilter: 'blur(4px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999
+        }} onClick={() => setShowConfigModal(false)}>
+          <div className="modal-content glass-panel" onClick={(e) => e.stopPropagation()} style={{
+            background: 'var(--glass-bg)', padding: '24px', borderRadius: '16px',
+            border: '1px solid var(--glass-border)', color: 'var(--text-main)',
+            textAlign: 'center', minWidth: '320px', boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)',
+            display: 'flex', flexDirection: 'column', gap: '15px'
+          }}>
+            <h3 style={{ fontSize: '1.2rem', color: 'var(--primary)', marginBottom: '10px' }}>Configure Node</h3>
+
+            <div style={{ display: 'flex', flexDirection: 'column', textAlign: 'left', gap: '5px' }}>
+              <label style={{ fontSize: '0.9rem', color: '#ccc' }}>IP Address</label>
+              <input
+                type="text"
+                value={ip}
+                onChange={(e) => setIp(e.target.value)}
+                style={{ padding: '10px', borderRadius: '8px', border: '1px solid var(--glass-border)', background: 'rgba(255,255,255,0.05)', color: '#fff', outline: 'none' }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', textAlign: 'left', gap: '5px' }}>
+              <label style={{ fontSize: '0.9rem', color: '#ccc' }}>URL</label>
+              <input
+                type="text"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                style={{ padding: '10px', borderRadius: '8px', border: '1px solid var(--glass-border)', background: 'rgba(255,255,255,0.05)', color: '#fff', outline: 'none' }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', textAlign: 'left', gap: '5px' }}>
+              <label style={{ fontSize: '0.9rem', color: '#ccc' }}>Mode</label>
+              <input
+                type="text"
+                value={mode}
+                onChange={(e) => setMode(e.target.value)}
+                style={{ padding: '10px', borderRadius: '8px', border: '1px solid var(--glass-border)', background: 'rgba(255,255,255,0.05)', color: '#fff', outline: 'none' }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', marginTop: '15px' }}>
+              <button className="save-workspace-btn" onClick={saveNodeConfig}>Save</button>
+              <button className="save-workspace-btn" style={{ background: '#ef4444', boxShadow: '0 4px 10px rgba(239, 68, 68, 0.3)' }} onClick={() => setShowConfigModal(false)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Connection Messages Modal */}
+      {showMessagesModal && (
+        <div className="modal-overlay" style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.6)', backdropFilter: 'blur(4px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999
+        }} onClick={() => setShowMessagesModal(false)}>
+          <div className="modal-content glass-panel" onClick={(e) => e.stopPropagation()} style={{
+            background: 'var(--glass-bg)', padding: '24px', borderRadius: '16px',
+            border: '1px solid var(--glass-border)', color: 'var(--text-main)',
+            textAlign: 'center', minWidth: '320px', boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)',
+            display: 'flex', flexDirection: 'column', gap: '15px'
+          }}>
+            <h3 style={{ fontSize: '1.2rem', color: 'var(--primary)', marginBottom: '10px' }}>Connection Message</h3>
+
+            <div style={{ display: 'flex', flexDirection: 'column', textAlign: 'left', gap: '5px' }}>
+              <label style={{ fontSize: '0.9rem', color: '#ccc' }}>Label</label>
+              <input type="text" value={messageLabel} onChange={(e) => setMessageLabel(e.target.value)} style={{ padding: '10px', borderRadius: '8px', border: '1px solid var(--glass-border)', background: 'rgba(255,255,255,0.05)', color: '#fff', outline: 'none' }} />
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', textAlign: 'left', gap: '5px' }}>
+              <label style={{ fontSize: '0.9rem', color: '#ccc' }}>Description</label>
+              <input type="text" value={messageDescription} onChange={(e) => setMessageDescription(e.target.value)} style={{ padding: '10px', borderRadius: '8px', border: '1px solid var(--glass-border)', background: 'rgba(255,255,255,0.05)', color: '#fff', outline: 'none' }} />
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', textAlign: 'left', gap: '5px' }}>
+              <label style={{ fontSize: '0.9rem', color: '#ccc' }}>Content</label>
+              <textarea value={messageContent} onChange={(e) => setMessageContent(e.target.value)} style={{ padding: '10px', borderRadius: '8px', border: '1px solid var(--glass-border)', background: 'rgba(255,255,255,0.05)', color: '#fff', outline: 'none', minHeight: '60px', resize: 'vertical' }} />
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', textAlign: 'left', gap: '5px' }}>
+              <label style={{ fontSize: '0.9rem', color: '#ccc' }}>Type</label>
+              <input type="text" value={messageType} onChange={(e) => setMessageType(e.target.value)} style={{ padding: '10px', borderRadius: '8px', border: '1px solid var(--glass-border)', background: 'rgba(255,255,255,0.05)', color: '#fff', outline: 'none' }} />
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', textAlign: 'left', gap: '5px' }}>
+              <label style={{ fontSize: '0.9rem', color: '#ccc' }}>Protocol</label>
+              <input type="text" value={messageProtocol} onChange={(e) => setMessageProtocol(e.target.value)} style={{ padding: '10px', borderRadius: '8px', border: '1px solid var(--glass-border)', background: 'rgba(255,255,255,0.05)', color: '#fff', outline: 'none' }} />
+            </div>
+
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', marginTop: '15px' }}>
+              <button className="save-workspace-btn" onClick={saveConnectionMessage}>Save</button>
+              <button className="save-workspace-btn" style={{ background: '#ef4444', boxShadow: '0 4px 10px rgba(239, 68, 68, 0.3)' }} onClick={() => setShowMessagesModal(false)}>Cancel</button>
+            </div>
           </div>
         </div>
       )}

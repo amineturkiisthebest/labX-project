@@ -270,6 +270,90 @@
   transform: translateX(-50%) scale(1.2);
 }
 
+.config-node-btn {
+  position: absolute;
+  top: -9px;
+  left: calc(50% - 32px);
+  width: 18px;
+  height: 18px;
+  background-color: #eab308;
+  border-radius: 50%;
+  border: 1px solid var(--text-main);
+  box-shadow: 0 0 4px #eab308;
+  cursor: pointer;
+  padding: 0;
+  z-index: 10;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-main);
+  font-size: 12px;
+  font-weight: bold;
+  line-height: 1;
+}
+
+.config-node-btn:hover {
+  background-color: #fde047;
+  transform: scale(1.2);
+}
+
+.delete-node-btn {
+  position: absolute;
+  top: -9px;
+  left: calc(50% + 14px);
+  width: 18px;
+  height: 18px;
+  background-color: #ef4444;
+  border-radius: 50%;
+  border: 1px solid var(--text-main);
+  box-shadow: 0 0 4px #ef4444;
+  cursor: pointer;
+  padding: 0;
+  z-index: 10;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-main);
+  font-size: 12px;
+  font-weight: bold;
+  line-height: 1;
+}
+
+.delete-node-btn:hover {
+  background-color: #f87171;
+  transform: scale(1.2);
+}
+
+.test-node-btn {
+  position: absolute;
+  bottom: -9px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 16px;
+  height: 16px;
+  background-color: #22c55e;
+  border-radius: 50%;
+  border: 1px solid var(--text-main);
+  box-shadow: 0 0 4px #22c55e;
+  cursor: pointer;
+  padding: 0;
+  z-index: 10;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-main);
+  font-size: 8px;
+  padding-left: 1px;
+  /* to visually center the play icon */
+}
+
+.test-node-btn:hover {
+  transform: translateX(-50%) scale(1.2);
+}
+
 /* ===== SVG Connection Lines ===== */
 .connections-svg {
   position: absolute;
@@ -325,4 +409,25 @@
 .node-palette::-webkit-scrollbar-thumb {
   background: rgba(255, 255, 255, 0.2);
   border-radius: 3px;
+}
+
+.connection-label-btn {
+  background: var(--primary);
+  color: var(--text-main);
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+  transition: all 0.2s ease;
+  pointer-events: auto;
+  font-family: inherit;
+}
+
+.connection-label-btn:hover {
+  background: #7c3aed;
+  transform: scale(1.05);
+  box-shadow: 0 4px 10px rgba(139, 92, 246, 0.4);
 }

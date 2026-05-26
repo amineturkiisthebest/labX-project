@@ -19,7 +19,7 @@ class SignupData(BaseModel):
     password: str
     role:str
 
-class WorkspaceData(BaseModel):
+class WorkspaceData2(BaseModel):
     newWorkspaceName: str
     newWorkspaceDescription: str
     email:str
@@ -37,15 +37,40 @@ class EditUser(BaseModel):
 class DeleteUser(BaseModel):
     userId: str
 
+   
+
 class Node(BaseModel):
     id: str
     name: str
     x: float
     y: float
+    ip: str
+    url: str
+    mode: str
+    configured: bool = False
+    isUnderTest: bool = False
 
-class NodesData(BaseModel):
+class Connection(BaseModel):
+    rootNodeName: str
+    targetNodeName: str
+    from_id: str
+    to_id: str
+    interface_name: str
+
+class Message(BaseModel):
+    label: str
+    description: str
+    content: str
+    type: str
+    protocol: str
+    source: str
+    destination: str
+    interface: str
+
+class WorkspaceData(BaseModel):
     nodesData: list[Node]
-    
+    existingConnections: list[Connection]
+    messages: list[Message]
 
 origins = [
     "http://localhost:3000"
@@ -114,7 +139,7 @@ def home(data:UserEmail):
     return {"workspaces": list_of_workspaces}
 
 @app.post("/new_workspace")
-def workspace(data:WorkspaceData):
+def workspace(data:WorkspaceData2):
     Workspace = workspaces_collection.find_one({"name":data.newWorkspaceName})
     if Workspace:
         return {"messageError": "Workspace name already exists"}
@@ -125,7 +150,7 @@ def workspace(data:WorkspaceData):
     return {"workspace_id": workspace_id}
 
 @app.put("/save_workspace/{workspace_id}")
-def save_workspace(workspace_id:str,data:NodesData):
+def save_workspace(workspace_id:str,data:WorkspaceData):
     updated_nodes = []
     for node in data.nodesData:
         updated_nodes.append({
@@ -134,19 +159,46 @@ def save_workspace(workspace_id:str,data:NodesData):
             "position": {
                 "x": node.x,
                 "y": node.y
-            }
+            },
+            "ip": node.ip,
+            "url": node.url,
+            "mode": node.mode,
+            "configured":node.configured,
+            "isUnderTest":node.isUnderTest
+        })
+    updated_connections = []
+    for connection in data.existingConnections:
+        updated_connections.append({
+            "from_id": connection.from_id,
+            "to_id": connection.to_id,
+            "fromNodeName": connection.rootNodeName,
+            "toNodeName": connection.targetNodeName,
+            "name":connection.interface_name
+        })
+    updated_messages = []
+    for message in data.messages:
+        updated_messages.append({
+            "label": message.label,
+            "description": message.description,
+            "content": message.content,
+            "type": message.type,
+            "protocol": message.protocol,
+            "source": message.source,
+            "destination": message.destination,
+            "interface": message.interface
         })
 
     result = workspaces_collection.update_one(
         {"_id": ObjectId(workspace_id)},
-        {"$set": {"nodes": updated_nodes}}
+        {"$set": {"nodes": updated_nodes,
+            "connections": updated_connections,"messages": updated_messages}}
     )
     return {"count": result.modified_count}
 
 @app.post("/load_workspace/{workspace_id}")
 def load_workspace(workspace_id:str):
     workspace = workspaces_collection.find_one({"_id": ObjectId(workspace_id)})
-    return {"nodes": workspace["nodes"]}
+    return {"nodes": workspace["nodes"],"connections": workspace["connections"]}
 
 @app.post("/nodes")
 def nodes():
