@@ -30,7 +30,6 @@ function Signup() {
             const data = await response.json();
 
             if (response.ok && !data.emailError && !data.usernameError) {
-                console.log("Signup Successful:", data);
                 navigate("/"); // Redirect to login after successful signup
             } else {
                 setEmailError(data.emailError);

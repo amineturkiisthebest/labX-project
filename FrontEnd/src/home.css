@@ -347,3 +347,22 @@
         transform: translateY(0);
     }
 }
+
+.test-flow-btn {
+    margin-top: 10px;
+    width: 100%;
+    padding: 10px;
+    border-radius: 8px;
+    border: 1px solid #10b981;
+    background: transparent;
+    color: #10b981;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+.test-flow-btn:hover {
+    background: #10b981;
+    color: white;
+    box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2);
+}

@@ -4,7 +4,7 @@ import Signup from "./Signup";
 import Home from "./Home";
 import Workspace from "./Workspace";
 import ManageUsers from "./Manageusers";
-
+import Testflow from "./Testflow";
 
 function App() {
     return (
@@ -15,6 +15,7 @@ function App() {
                 <Route path="/" element={<Login />} />
                 <Route path="/workspace/:id" element={<Workspace />} />
                 <Route path="/manageusers" element={<ManageUsers />} />
+                <Route path="/Testflow/:id" element={<Testflow />} />
             </Routes>
         </BrowserRouter>
     );

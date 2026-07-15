@@ -6,3 +6,4 @@ db = client.LabXDatabase
 users_collection = db.Users
 workspaces_collection = db.Workspaces
 nodes_collection = db.Nodes
+messages_collection = db.Messages

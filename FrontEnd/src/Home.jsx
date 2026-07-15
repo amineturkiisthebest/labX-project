@@ -141,6 +141,9 @@ function Home() {
                                 <h3>{ws.name}</h3>
                                 <p>{ws.description}</p>
                                 <button className="enter-ws" onClick={() => navigate(`/workspace/${ws._id}`)}>Enter Workspace</button>
+                                {ws.is_ready && (
+                                    <button className="test-flow-btn" onClick={() => { navigate(`/Testflow/${ws._id}`) }}>Test Call Flow</button>
+                                )}
                             </div>
                         ))}
                     </div>
