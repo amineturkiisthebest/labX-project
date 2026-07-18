@@ -550,7 +550,11 @@ function Workspace() {
       .find(i => i.split("-")[1] === destination.split("-")[0])
       ?.split("-")[0] || "";
     let defaultProtocol = "diameter";
-    if (["N26", "S1", "S10", "S3", "S11", "S4", "X2", "Xn", "N2"].includes(interfaceName)) {
+    if (interfaceName === "S1_MME") {
+      defaultProtocol = "S1AP";
+    } else if (["S11", "S10", "S5", "S8"].includes(interfaceName)) {
+      defaultProtocol = "GTPv2";
+    } else if (["N26", "S1", "S3", "S4", "X2", "Xn", "N2"].includes(interfaceName)) {
       defaultProtocol = "MobilityManagement";
     } else if (interfaceName && interfaceName.startsWith("N")) {
       defaultProtocol = "http2";

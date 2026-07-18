@@ -163,9 +163,9 @@ class GTPHeader:
     def __init__(
         self,
         message_type,
-        teid,
         seq,
-        payload_length=0
+        payload_length=0,
+        teid=None
     ):
         self.version = 2
         self.pt = 1
@@ -174,11 +174,10 @@ class GTPHeader:
         self.seq = seq
         self.payload_length = payload_length
     def encode(self, payload_length):
-        flags = (
-            (self.version << 5) |
-            (self.pt << 4) |
-            0x08      # TEID flag set
-        )
+        flags = (self.version << 5) | (self.pt << 4)
+
+        if self.teid is not None:
+            flags |= 0x08
 
         return (
             struct.pack("!B", flags) +
@@ -203,7 +202,7 @@ class GTPInformationElement:
         ie = b""
         ie += struct.pack("!B", self.ie_type)
         ie += struct.pack("!H", len(value))
-        ie += struct.pack("!B", self.instance)
+        ie += struct.pack("!B", self.instance & 0x0F)
 
         ie += value
 
@@ -301,6 +300,92 @@ def encode_ipv4(ip):
     
 def encode_uint8(value):
     return struct.pack("!B", value)
+
+def encode_apn(apn: str) -> bytes:
+    encoded = b""
+
+    for label in apn.split("."):
+        if len(label) > 63:
+            raise ValueError("Each APN label must be at most 63 bytes")
+
+        encoded += bytes([len(label)])
+        encoded += label.encode("ascii")
+
+    return encoded
+def encode_recovery(restart_counter=0):
+    return struct.pack("!B", restart_counter)
+
+def encode_selection_mode(mode):
+    return struct.pack("!B", mode)
+def encode_pdn_type(pdn_type):
+    return struct.pack("!B", pdn_type)
+def encode_serving_network(mcc, mnc):
+    digits = mcc + mnc
+
+    if len(mnc) == 2:
+        digits = mcc + mnc + "F"
+
+    return bytes([
+        (int(digits[1],16) << 4) | int(digits[0],16),
+        (int(digits[5],16) << 4) | int(digits[2],16),
+        (int(digits[4],16) << 4) | int(digits[3],16)
+    ])
+def encode_f_teid(teid, ipv4, interface_type=10):
+    value = b""
+
+    # V4=1, V6=0
+    value += struct.pack("!B", 0x80)
+
+    value += struct.pack("!B", interface_type)
+
+    value += struct.pack("!I", teid)
+
+    value += socket.inet_aton(ipv4)
+
+    return value
+
+
+def encode_tbcd(number: str) -> bytes:
+    # Only digits are allowed
+    if not number.isdigit():
+        raise ValueError("TBCD encoder accepts digits only")
+
+    encoded = bytearray()
+
+    i = 0
+    while i < len(number):
+        low = int(number[i])
+
+        if i + 1 < len(number):
+            high = int(number[i + 1])
+        else:
+            high = 0xF  # Padding for odd number of digits
+
+        encoded.append((high << 4) | low)
+        i += 2
+
+    return bytes(encoded)
+def encode_ue_timezone(timezone_quarters=4, dst=0):
+    """
+    timezone_quarters:
+        UTC offset in 15-minute units.
+        UTC+1 = 4
+        UTC+2 = 8
+    dst:
+        0 = no DST
+        1 = +1 hour
+        2 = +2 hours
+    """
+    return struct.pack("!BB", timezone_quarters, dst)
+def encode_apn_restriction(value=0):
+    return struct.pack("!B", value)
+def encode_ambr(ul, dl):
+    return (
+        struct.pack("!I", ul) +
+        struct.pack("!I", dl)
+    )
+def encode_indication():
+    return bytes(8)
 ENCODERS = {
     "UTF8String": encode_utf8,
     "Unsigned32": encode_uint32,
@@ -1058,6 +1143,8 @@ def test_nodes_with_protocol_diameter(workspace_id:str,data:DiameterMessage):
                         for node in workspace['nodes']:
                             if node["id"]==message["id"].split("/")[1]:
                                 ip_address_des = node['ip']
+                                mnc = node['mnc']
+                                mcc = node['mcc']
                                 break
                         value4 = encode_ipv4(ip_address_des)
                         diameter_avp4 = DiameterAVP(
@@ -1101,6 +1188,7 @@ def test_nodes_with_protocol_diameter(workspace_id:str,data:DiameterMessage):
                 )
                         send(packet)
                         wrpcap(f"./pcap_files/{workspace_id}_diameter_test_scapy.pcap", packet)
+                    if(message["protocol"]== "GTPv2"):
                         gtp_header = GTPHeader(
                             message_type=GTP_MESSAGES["Create Session Request"]["message_type"],
                             teid=random.randint(0, 0xFFFFFFFF),
@@ -1109,24 +1197,117 @@ def test_nodes_with_protocol_diameter(workspace_id:str,data:DiameterMessage):
                         imsi_ie = GTPInformationElement(
                             ie_type=1,
                             instance=0,
-                            value=encode_utf8("001010123456789")
+                            value=encode_tbcd("001010123456789")
                         )
                         apn_ie = GTPInformationElement(
                             ie_type=71,
                             instance=0,
-                            value=encode_utf8("internet")
+                            value=encode_apn("internet")
                         )
                         rat_ie = GTPInformationElement(
                             ie_type=82,
                             instance=0,
                             value=encode_uint8(6)
                         )
+                        recovery_ie = GTPInformationElement(
+                            ie_type=3,
+                            instance=0,
+                            value=encode_recovery(0)
+                        )
+                        selection_ie = GTPInformationElement(
+                            ie_type=128,
+                            instance=0,
+                            value=encode_selection_mode(0)
+                        )
+                        pdn_ie = GTPInformationElement(
+                            ie_type=99,
+                            instance=0,
+                            value=encode_pdn_type(1)
+                        )
+                        if (mnc and mcc):
+                            serving_network_ie = GTPInformationElement(
+                                ie_type=83,
+                                instance=0,
+                                value=encode_serving_network(mcc,mnc)
+                        )
+                        else:
+                            serving_network_ie = GTPInformationElement(
+                            ie_type=83,
+                            instance=0,
+                            value=encode_serving_network("001","01")
+                        )
+                        fteid_ie = GTPInformationElement(
+                            ie_type=87,
+                            instance=0,
+                            value=encode_f_teid(
+                                teid=0x12345678,
+                                ipv4=ip_address_source
+                            )
+                        )
+                        ebi_ie = GTPInformationElement(
+                            ie_type=73,
+                            instance=0,
+                            value=struct.pack("!B", 5)
+                        )
+                        bearer_fteid = GTPInformationElement(
+                            ie_type=87,
+                            instance=0,
+                            value=encode_f_teid(
+                                teid=0x87654321,
+                                ipv4=ip_address_source
+                            )
+                        )
+                        bearer_context_value = (
+                                ebi_ie.encode() +
+                                bearer_fteid.encode()
+                        )
+
+                        bearer_context_ie = GTPInformationElement(
+                            ie_type=93,
+                            instance=0,
+                            value=bearer_context_value
+                        )
+                        ue_timezone_ie = GTPInformationElement(
+                            ie_type=114,
+                            instance=0,
+                            value=encode_ue_timezone(4,0)
+                        )
+                        apn_restriction_ie = GTPInformationElement(
+                            ie_type=127,
+                            instance=0,
+                            value=encode_apn_restriction(0)
+                        )
+                        ambr_ie = GTPInformationElement(
+                            ie_type=72,
+                            instance=0,
+                            value=encode_ambr(
+                                ul=100000,
+                                dl=100000
+                            )
+                        )
+                        indication_ie = GTPInformationElement(
+                            ie_type=77,
+                            instance=0,
+                            value=encode_indication()
+                        )
+
+                        
                         ie1 = imsi_ie.encode()
                         ie2 = apn_ie.encode()
                         ie3 = rat_ie.encode()
-                        gtp_payload = ie1 + ie2 + ie3
+                        ie4 = recovery_ie.encode()
+                        ie5 = selection_ie.encode()
+                        ie6 = pdn_ie.encode()
+                        ie7 = serving_network_ie.encode()
+                        ie8 = fteid_ie.encode()
+                        ie9 = bearer_context_ie.encode()
+                        ie10 = ue_timezone_ie.encode()
+                        ie11 = apn_restriction_ie.encode()
+                        ie12 = ambr_ie.encode()
+                        ie13 = indication_ie.encode()
+                        gtp_payload = ie1 + ie2 + ie3 + ie4 + ie5 + ie6 + ie7 + ie8 + ie9 + ie10 + ie11 + ie12 + ie13
 
-                        message_length = 20 + len(gtp_payload)
+                        message_length = 8 + len(gtp_payload)
 
                         gtp_header = gtp_header.encode(message_length)
                         gtp_packet = gtp_header + gtp_payload
@@ -1136,9 +1317,10 @@ def test_nodes_with_protocol_diameter(workspace_id:str,data:DiameterMessage):
                             / UDP(sport=2123, dport=2123)
                             / Raw(gtp_packet)
                         )
-
                         send(packet)
                         print("GTP Create Session Request sent to " + ip_address_des)
+                        print(gtp_packet.hex())
+                        wrpcap(f"./pcap_files/{workspace_id}_gtp_test_scapy.pcap", packet)
 
 
 
