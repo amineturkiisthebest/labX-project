@@ -45,6 +45,8 @@ function Workspace() {
   const [messagesExist, setMessagesExist] = useState(false);
   const [showServiceConfigModal, setShowServiceConfigModal] = useState(false);
   const [serviceConfigData, setServiceConfigData] = useState(null);
+  const [isServiceAdded, setIsServiceAdded] = useState(false);
+
 
   // Connection Messages State
   const [showMessagesModal, setShowMessagesModal] = useState(false);
@@ -140,6 +142,7 @@ function Workspace() {
         message: service
       }
     ]);
+    setIsServiceAdded(true);
     console.log(callFlowMessages);
     setShowServicesModal(false);
   }
@@ -266,6 +269,7 @@ function Workspace() {
     const data = await response.json();
     setShowTestResultModal(false);
   }
+
 
   // Draw connections or background (optional)
   useEffect(() => {
@@ -451,6 +455,7 @@ function Workspace() {
         };
       });
       setCallFlowMessages(loadedMessages);
+      console.log(callFlowMessages);
     }
     else {
       setCallFlowMessages([]);
@@ -485,6 +490,7 @@ function Workspace() {
       configured: nodeConfigs[node.id]?.configured || false,
       isUnderTest: nodeConfigs[node.id]?.isUnderTest || false
     }));
+    setCallFlowMessages([]);
     const response = await fetch(`http://localhost:8000/save_workspace/${w_id}`, {
       method: "PUT",
       headers: {
@@ -1055,13 +1061,13 @@ function Workspace() {
           <div className="call-flow-container">
             <div className="cf-header-bar">
               <h2 className="cf-title">Call Flow Sequence Diagram</h2>
-              {messagesExist && (
+              {(callFlowMessages.length > 0) && (
                 <button className="run-services-btn" onClick={() => setViewMode(viewMode === "services" ? "callFlow" : "services")}>
                   {viewMode === "services" ? "Back to Call Flow" : "services"}
                 </button>
               )}
               <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                {callFlowMessages.length > 0 && (
+                {(isServiceAdded) && (
                   <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
                     <button onClick={handleSaveCallFlow} className="run-services-btn">
                       Save Call Flow
@@ -1138,6 +1144,7 @@ function Workspace() {
                                   className="remove-sd-arrow-btn"
                                   onClick={() => {
                                     setCallFlowMessages(prev => prev.filter((_, i) => i !== idx));
+                                    setIsServiceAdded(true);
                                   }}
                                 >
                                   x
@@ -1158,6 +1165,18 @@ function Workspace() {
                               <div className="service-info">
                                 <span className="service-name">{msg.message}</span>
                                 <span className="service-route">{msg.from_name} ➔ {msg.to_name}</span>
+                              </div>
+                              <div className="service-status">
+                                <span className="status-badge">Ready</span>
+                              </div>
+                            </button>
+                          ))
+                        ) : messages.length > 0 ? (
+                          messages.map((msg, idx) => (
+                            <button onClick={() => { configureService(msg.label) }} key={idx} className="service-card">
+                              <div className="service-info">
+                                <span className="service-name">{msg.label}</span>
+                                <span className="service-route">{msg.source} ➔ {msg.destination}</span>
                               </div>
                               <div className="service-status">
                                 <span className="status-badge">Ready</span>

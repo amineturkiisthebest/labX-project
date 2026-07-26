@@ -10,10 +10,12 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
 from passlib.context import CryptContext
 import scapy.all as scapy
-from scapy.all import IP,UDP,TCP, Raw, send,wrpcap
+from scapy.all import IP,UDP,TCP, Raw, send,wrpcap,sr1
 import socket
 import threading
 import random
+# pyrefly: ignore [missing-import]
+from pycrate_asn1dir.S1AP import S1AP_PDU_Descriptions
 import struct
 # pyrefly: ignore [missing-import]
 import httpx
@@ -1058,8 +1060,8 @@ def is_port_open(ip, port=443, timeout=1.0):
 def test_nodes_with_protocol_diameter(workspace_id:str,data:DiameterMessage):
     if data.frequency == "once":
         messages =list(messages_collection.find({"workspace_id":workspace_id}))
+        responses = []
         if (messages):
-                responses = []
                 response=""
                 response2=""
                 for message in messages:
@@ -1083,6 +1085,7 @@ def test_nodes_with_protocol_diameter(workspace_id:str,data:DiameterMessage):
                         if(response):
                             responses.append({
                             "message_id": str(message["_id"]),
+                            "protocol": "http2",
                             "destination_ip": destination_ip,
                             "label": message.get("label"),
                             "status_code": response.status_code,
@@ -1187,13 +1190,45 @@ def test_nodes_with_protocol_diameter(workspace_id:str,data:DiameterMessage):
                         Raw(diameter_message)
                 )
                         send(packet)
+                        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                        try:
+                            sock.connect((ip_address_des, 3868))
+                            sock.sendall(diameter_message)
+                            sock.settimeout(1) 
+                            response = sock.recv(4096)
+                        except socket.timeout:
+                            response = None
                         wrpcap(f"./pcap_files/{workspace_id}_diameter_test_scapy.pcap", packet)
+                        if(response):
+                            responses.append({
+                            "protocol": "diameter",
+                            "destination_ip": ip_address_des,
+                            "diameter_message_version": data.diameter_message.split("/")[0],
+                            "source": ip_address_source,
+                            "status": "success",
+                            "body": response.hex()
+                        })
+                        else:
+                            responses.append({
+                            "protocol": "diameter",
+                            "destination_ip": ip_address_des,
+                            "diameter_message_version": data.diameter_message.split("/")[0],
+                            "source": ip_address_source,
+                            "status": "packets sent successfully",
+                            "body": "no response received"
+                })
+
                     if(message["protocol"]== "GTPv2"):
                         gtp_header = GTPHeader(
                             message_type=GTP_MESSAGES["Create Session Request"]["message_type"],
                             teid=random.randint(0, 0xFFFFFFFF),
                             seq=random.randint(0, 0xFFFFFF)
                         )
+                        for node in workspace['nodes']:
+                            if node["id"]==message["id"].split("/")[0]:
+                                ip_address_source = node['ip']
+                            if node["id"]==message["id"].split("/")[1]:
+                                ip_address_des = node['ip']
                         imsi_ie = GTPInformationElement(
                             ie_type=1,
                             instance=0,
@@ -1318,9 +1353,71 @@ def test_nodes_with_protocol_diameter(workspace_id:str,data:DiameterMessage):
                             / Raw(gtp_packet)
                         )
                         send(packet)
+                        response = sr1(packet, timeout=5, verbose=False)
                         print("GTP Create Session Request sent to " + ip_address_des)
                         print(gtp_packet.hex())
                         wrpcap(f"./pcap_files/{workspace_id}_gtp_test_scapy.pcap", packet)
+                        if(response):
+                            responses.append({
+                            "protocol": "GTPv2",
+                            "destination_ip": ip_address_des,
+                            "source": ip_address_source,
+                            "status": "success",
+                            "body": response.summary()
+                        })
+                        else:
+                            responses.append({
+                            "protocol": "GTPv2",
+                            "destination_ip": ip_address_des,
+                            "source": ip_address_source,
+                            "status": "packets sent successfully",
+                            "body": "no response received"
+                })
+                    if(message["protocol"]=="S1AP"):
+                        for node in workspace['nodes']:
+                            if node["id"]==message["id"].split("/")[0] and node["name"]=="MME":
+                                ip_address_des = node['ip']
+                            if node["id"]==message["id"].split("/")[1] and node["name"]=="MME":
+                                ip_address_des = node['ip']
+                        pdu = S1AP_PDU_Descriptions.S1AP_PDU()
+                        pdu.set_val({
+    "initiatingMessage": {
+        "procedureCode": 17,
+        "criticality": "reject",
+        "value": (
+            "S1SetupRequest",
+            {
+                "protocolIEs": [
+                    {
+                        "id": 59,
+                        "criticality": "reject",
+                        "value": (
+                            "Global-ENB-ID",
+                            {
+                                "pLMNidentity": b"\x00\xf1\x10",
+                                "eNB-ID": (
+                                    "macroENB-ID",
+                                    (0x12345,20)
+                                )
+                            }
+                        )
+                    }
+                ]
+            }
+        )
+    }
+})
+                        encoded = pdu.to_aper()
+                        try:
+                            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                            sock.settimeout(2)
+                            sock.connect((ip_address_des,36412))
+                            sock.sendall(encoded)
+
+                        except socket.timeout:
+                            response = None
+
+
 
 
 
