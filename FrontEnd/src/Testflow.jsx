@@ -79,8 +79,10 @@ function Testflow() {
                 response: resp.response
             }));
             if (packetLogs.length === 0) {
-                packetLogs = [{ type: 'text', message: "No packet transmissions required." }];
+                packetLogs = [{ type: 'text', message: "No packet transmissions found." }];
             }
+        } else {
+            packetLogs = [{ type: 'text', message: `Packet transmission result: ${data.response}` }];
         }
 
         const simulatedLogs = [
@@ -152,7 +154,7 @@ function Testflow() {
         if (typeof diameterMsg === 'string') {
             bodyData.diameter_message = diameterMsg;
             try {
-                const response = await fetch(`http://localhost:8000/test_flow_with_protocol_diameter/${id}`, {
+                const response = await fetch(`http://localhost:8000/test_flow_with_protocol_all/${id}`, {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json",
@@ -192,7 +194,6 @@ function Testflow() {
         setIsTesting(true);
         setLogs([]);
         setProgress(0);
-
         let packetLogs = [];
         if (Array.isArray(data.response)) {
             packetLogs = data.response.map(resp => {
@@ -229,7 +230,7 @@ function Testflow() {
                         body: resp.body
                     };
                 }
-                return { type: 'text', message: `No http2 or diameter or gtpv2 connections configured` };
+                return { type: 'text', message: `No http2, diameter or gtpv2 connections configured` };
             });
 
             if (packetLogs.length === 0) {
@@ -420,6 +421,22 @@ function Testflow() {
                                                 <span className="log-message">
                                                     {log.message}
                                                 </span>
+                                            </div>
+                                        );
+                                    } else if (log.type === "packet") {
+                                        return (
+                                            <div key={idx} className="log-entry packet-entry">
+                                                <div className="packet-header">
+                                                    <span className="log-timestamp">[{new Date().toLocaleTimeString()}]</span>
+                                                    <span className="packet-protocol">[ICMP]</span>
+                                                    <span className={`packet-status ${log.status}`}>[{String(log.status).toUpperCase()}]</span>
+                                                    <span className="packet-dest">To: {log.destination_ip}</span>
+                                                    <span className="packet-label">({log.label})</span>
+                                                </div>
+                                                <div className="packet-details">
+                                                    <div className="packet-req"><span className="packet-tag req">REQ</span> {log.packet}</div>
+                                                    <div className="packet-res"><span className="packet-tag res">RES</span> {log.response || "No response received"}</div>
+                                                </div>
                                             </div>
                                         );
                                     } else if (log.type === "http2_packet") {

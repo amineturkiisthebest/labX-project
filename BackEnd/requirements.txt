@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+pymongo
+motor
+python-jose
+passlib[argon2]
+python-multipart
+pydantic
+reportlab
+scapy
+httpx
+pycrate
+jose
