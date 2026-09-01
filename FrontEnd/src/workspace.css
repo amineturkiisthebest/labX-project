@@ -780,6 +780,27 @@
   box-shadow: 0 6px 14px rgba(59, 130, 246, 0.4);
 }
 
+.test-flow-btn {
+  margin: 0 !important;
+  margin-top: -2px !important;
+  background: #10b981;
+  color: var(--text-main);
+  border: none;
+  padding: 8px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-weight: 600;
+  box-shadow: 0 4px 10px rgba(16, 185, 129, 0.3);
+  animation: fadeInSlide 0.4s ease-out forwards;
+}
+
+.test-flow-btn:hover {
+  background: #059669;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 14px rgba(16, 185, 129, 0.4);
+}
+
 @keyframes fadeInSlide {
   0% {
     opacity: 0;

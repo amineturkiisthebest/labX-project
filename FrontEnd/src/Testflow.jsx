@@ -26,7 +26,7 @@ function Testflow() {
                 setTimeout(() => {
                     setWorkspace({
                         name: "Test Environment Call Flow",
-                        description: "Validating configuration and executing simulated packet transmission for workspace: " + id
+                        description: "Validating configuration and executing simulated packet transmission"
                     });
                 }, 500);
             } catch (err) {
@@ -151,39 +151,26 @@ function Testflow() {
         setIsLoadingProtocol(true);
         let data;
         const bodyData = { frequency: selectedFrequency };
-        if (typeof diameterMsg === 'string') {
+        if (diameterMsg) {
             bodyData.diameter_message = diameterMsg;
-            try {
-                const response = await fetch(`http://localhost:8000/test_flow_with_protocol_all/${id}`, {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                    },
-                    body: JSON.stringify(bodyData)
-                });
-                data = await response.json();
-                console.log(data.response)
-            } catch (error) {
-                console.error(error);
-                setIsLoadingProtocol(false);
-                return;
-            }
         }
         else {
-            try {
-                const response = await fetch(`http://localhost:8000/test_flow_with_protocol/${id}`, {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                    },
-                    body: JSON.stringify(bodyData)
-                });
-                data = await response.json();
-            } catch (error) {
-                console.error(error);
-                setIsLoadingProtocol(false);
-                return;
-            }
+            bodyData.diameter_message = "no_messages";
+        }
+        try {
+            const response = await fetch(`http://localhost:8000/test_flow_with_protocol_all/${id}`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify(bodyData)
+            });
+            data = await response.json();
+            console.log(data.response)
+        } catch (error) {
+            console.error(error);
+            setIsLoadingProtocol(false);
+            return;
         }
         setIsLoadingProtocol(false);
         console.log(data.response)
@@ -219,7 +206,32 @@ function Testflow() {
                         status_code: resp.status_code || resp.status,
                         body: resp.body
                     };
-                } else if (resp.protocol === "GTPv2") {
+
+                } else if (resp.protocol === "S1AP") {
+                    return {
+                        type: 'S1AP_packet',
+                        status: resp.status === 'success' ? 'success' : 'error',
+                        protocol: resp.protocol,
+                        destination_ip: resp.destination_ip,
+                        source: resp.source,
+                        msg_type: resp.type,
+                        status_code: resp.status_code || resp.status,
+                        body: resp.body
+                    };
+                }
+                else if (resp.protocol === "GTPv1-U") {
+                    return {
+                        type: 'GTPv1-U_packet',
+                        status: resp.status === 'success' ? 'success' : 'error',
+                        protocol: resp.protocol,
+                        destination_ip: resp.destination_ip,
+                        source: resp.source,
+                        msg_type: "Tunnel Protocol Data Unit ",
+                        status_code: resp.status_code || resp.status,
+                        body: resp.body
+                    };
+                }
+                else if (resp.protocol === "GTPv2") {
                     return {
                         type: 'GTPv2_packet',
                         status: resp.status === 'success' ? 'success' : 'error',
@@ -230,7 +242,7 @@ function Testflow() {
                         body: resp.body
                     };
                 }
-                return { type: 'text', message: `No http2, diameter or gtpv2 connections configured` };
+                return { type: 'text', message: `No http2, diameter, s1ap or gtp connections configured` };
             });
 
             if (packetLogs.length === 0) {
@@ -276,7 +288,10 @@ function Testflow() {
                     </svg>
                     <span>Back to Home</span>
                 </div>
-                <div className="nav-title">Call Flow Testing</div>
+                <div className="nav-right-section">
+                    <button className="enter-ws" onClick={() => navigate(`/workspace/${id}`)}>Enter Workspace</button>
+                    <div className="nav-title">Call Flow Testing</div>
+                </div>
             </nav>
 
             <main className="testflow-main">
@@ -471,7 +486,42 @@ function Testflow() {
                                                 </div>
                                             </div>
                                         );
-                                    } else if (log.type === "GTPv2_packet") {
+                                    }
+                                    else if (log.type === "S1AP_packet") {
+                                        return (
+                                            <div key={idx} className="log-entry packet-entry">
+                                                <div className="packet-header">
+                                                    <span className="log-timestamp">[{new Date().toLocaleTimeString()}]</span>
+                                                    <span className="packet-protocol">[{log.protocol}]</span>
+                                                    <span className={`packet-status ${log.status_code}`}>[{String(log.status_code).toUpperCase()}]</span>
+                                                    <span className="packet-dest">From: {log.source} To: {log.destination_ip}</span>
+                                                    <span className="packet-label">({log.msg_type})</span>
+                                                </div>
+                                                <div className="packet-details">
+                                                    <div className="packet-req"><span className="packet-tag req">STATUS</span> {log.status_code}</div>
+                                                    <div className="packet-res"><span className="packet-tag res">BODY</span> {typeof log.body === 'object' ? JSON.stringify(log.body) : (log.body || "No body received")}</div>
+                                                </div>
+                                            </div>
+                                        );
+                                    }
+                                    else if (log.type === "GTPv1-U_packet") {
+                                        return (
+                                            <div key={idx} className="log-entry packet-entry">
+                                                <div className="packet-header">
+                                                    <span className="log-timestamp">[{new Date().toLocaleTimeString()}]</span>
+                                                    <span className="packet-protocol">[{log.protocol}]</span>
+                                                    <span className={`packet-status ${log.status_code}`}>[{String(log.status_code).toUpperCase()}]</span>
+                                                    <span className="packet-dest">From: {log.source} To: {log.destination_ip}</span>
+                                                    <span className="packet-label">({log.msg_type})</span>
+                                                </div>
+                                                <div className="packet-details">
+                                                    <div className="packet-req"><span className="packet-tag req">STATUS</span> {log.status_code}</div>
+                                                    <div className="packet-res"><span className="packet-tag res">BODY</span> {typeof log.body === 'object' ? JSON.stringify(log.body) : (log.body || "No body received")}</div>
+                                                </div>
+                                            </div>
+                                        );
+                                    }
+                                    else if (log.type === "GTPv2_packet") {
                                         return (
                                             <div key={idx} className="log-entry packet-entry">
                                                 <div className="packet-header">

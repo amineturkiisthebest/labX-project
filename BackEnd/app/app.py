@@ -12,7 +12,8 @@ from passlib.context import CryptContext
 import scapy.all as scapy
 from scapy.all import load_contrib
 from scapy.all import IP,UDP,TCP, Raw, send,wrpcap,sr1
-from scapy.layers.sctp import SCTP,SCTPChunkData
+from scapy.contrib.gtp import GTP_U_Header
+from scapy.layers.sctp import SCTP, SCTPChunkInit, SCTPChunkInitAck, SCTPChunkCookieEcho, SCTPChunkCookieAck, SCTPChunkData
 import socket
 import threading
 import random
@@ -117,27 +118,27 @@ class ConfigureService(BaseModel):
     service_name: str
 GTP_MESSAGES = {
 
-    "Create Session Request": {
+    "CreateSessionRequest": {
         "message_type": 32
     },
 
-    "Create Session Response": {
+    "CreateSessionResponse": {
         "message_type": 33
     },
 
-    "Modify Bearer Request": {
+    "ModifyBearerRequest": {
         "message_type": 34
     },
 
-    "Modify Bearer Response": {
+    "ModifyBearerResponse": {
         "message_type": 35
     },
 
-    "Delete Session Request": {
+    "DeleteSessionRequest": {
         "message_type": 36
     },
 
-    "Delete Session Response": {
+    "DeleteSessionResponse": {
         "message_type": 37
     }
 }
@@ -173,7 +174,7 @@ class GTPHeader:
         teid=None
     ):
         self.version = 2
-        self.pt = 1
+        self.pt = 0
         self.message_type = message_type
         self.teid = teid
         self.seq = seq
@@ -209,7 +210,7 @@ class GTPHeader:
             # If TEID is None (e.g., Echo requests), GTPv2 skips the 4-byte TEID field entirely.
             # Total header size drops to 8 bytes instead of 12.
             return struct.pack(
-                "!BBHBBB",
+                "!BBHBBBB",
                 flags,
                 self.message_type,
                 payload_length,
@@ -999,69 +1000,64 @@ def send_packets_with_protocol(workspace_id, interval,data):
         workspace = workspaces_collection.find_one({"_id": ObjectId(workspace_id)})
         if(workspace):
             for message in workspace["messages"]:
-                if(message["protocol"]=="diameter"):
-                    hop_id = random.randint(0, 0xFFFFFFFF)
-                    end_id = random.randint(0, 0xFFFFFFFF)
-                    diameter_header = DiameterHeader(
-                        command_code=DIAMETER_MESSAGES[data.diameter_message.split("/")[0]]["command_code"],
-                        application_id=DIAMETER_MESSAGES[data.diameter_message.split("/")[0]]["application_id"],
-                        flags=DIAMETER_MESSAGES[data.diameter_message.split("/")[0]]["flags"],
-                        hop_id=hop_id,
-                        end_id=end_id
+                    if(message["protocol"]=="diameter"):
+                        hop_id = random.randint(0, 0xFFFFFFFF)
+                        end_id = random.randint(0, 0xFFFFFFFF)
+                        diameter_header = DiameterHeader(
+                            command_code=DIAMETER_MESSAGES[data.diameter_message.split("/")[0]]["command_code"],
+                            application_id=DIAMETER_MESSAGES[data.diameter_message.split("/")[0]]["application_id"],
+                            flags=DIAMETER_MESSAGES[data.diameter_message.split("/")[0]]["flags"],
+                            hop_id=hop_id,
+                            end_id=end_id
                             )
-                    session_id = f'{message["destination"]}.labx.local;{random.randint(1720623456, 2720623456)};{random.randint(1, 10)}'
-                    value0 = encode_utf8(session_id)
-                    diameter_avp0 = DiameterAVP(
+                        session_id = f'{message["destination"]}.labx.local;{random.randint(1720623456, 2720623456)};{random.randint(1, 10)}'
+                        value0 = encode_utf8(session_id)
+                        diameter_avp0 = DiameterAVP(
                         code=263,
                         value=value0,
                         mandatory=True,
                         vendor_id=None
                     )
-                    value1 = encode_utf8(f'{message["destination"]}.labx.local')
-                    padding = (4 - (len(value1) % 4)) % 4
-                    value1 += b"\x00" * padding
-                    diameter_avp1 = DiameterAVP(
+                        value1 = encode_utf8(f'{message["destination"]}.labx.local')
+                        diameter_avp1 = DiameterAVP(
                         code=AVP_DICTIONARY["Origin-Host"]["code"],
                         value=value1,
                         mandatory=True,
                         vendor_id=None
                     )
-                    value2 = encode_utf8("labx.local")
-                    padding = (4 - (len(value2) % 4)) % 4
-                    value2 += b"\x00" * padding
-                    diameter_avp2 = DiameterAVP(
+                        value2 = encode_utf8("labx.local")
+                        diameter_avp2 = DiameterAVP(
                         code=AVP_DICTIONARY["Origin-Realm"]["code"],
                         value=value2,
                         mandatory=True,
                         vendor_id=None
                     )
-                    value3 = encode_uint32(10415)
-                    padding = (4 - (len(value3) % 4)) % 4
-                    value3 += b"\x00" * padding
-                    diameter_avp3 = DiameterAVP(
+                        value3 = encode_uint32(10415)
+                        diameter_avp3 = DiameterAVP(
                         code=AVP_DICTIONARY["Vendor-Id"]["code"],
                         value=value3,
                         mandatory=True,
                         vendor_id=None
                     )
-                    for node in workspace['nodes']:
-                        if node["id"]==message["id"].split("/")[1]:
-                            ip_address_des = node['ip']
-                            break
-                    value4 = encode_ipv4(ip_address_des)
-                    diameter_avp4 = DiameterAVP(
+                        for node in workspace['nodes']:
+                            if node["id"]==message["id"].split("/")[1]:
+                                ip_address_des = node['ip']
+                                mnc = node['mnc']
+                                mcc = node['mcc']
+                                break
+                        value4 = encode_ipv4(ip_address_des)
+                        diameter_avp4 = DiameterAVP(
                         code=AVP_DICTIONARY["Host-IP-Address"]["code"],
                         value=value4,
                         mandatory=True,
                         vendor_id=None
                     )
-    
-                    avp0 = diameter_avp0.encode()
-                    avp1 = diameter_avp1.encode()
-                    avp2 = diameter_avp2.encode()
-                    avp3 = diameter_avp3.encode()
-                    avp4 = diameter_avp4.encode()
-                    message_length = (
+                        avp0 = diameter_avp0.encode()
+                        avp1 = diameter_avp1.encode()
+                        avp2 = diameter_avp2.encode()
+                        avp3 = diameter_avp3.encode()
+                        avp4 = diameter_avp4.encode()
+                        message_length = (
                         20
                         + len(avp0)
                         + len(avp1)
@@ -1069,8 +1065,8 @@ def send_packets_with_protocol(workspace_id, interval,data):
                         + len(avp3)
                         + len(avp4)
                     )
-                    header = diameter_header.encode(message_length)
-                    diameter_message = (
+                        header = diameter_header.encode(message_length)
+                        diameter_message = (
                         header
                         + avp0
                         + avp1
@@ -1078,130 +1074,132 @@ def send_packets_with_protocol(workspace_id, interval,data):
                         + avp3
                         + avp4
                     )
-                    for node in workspace['nodes']:
-                        if node["id"]==message["id"].split("/")[0]:
-                            ip_address_source = node['ip']
-                            break
-                    packet = (
+                        for node in workspace['nodes']:
+                            if node["id"]==message["id"].split("/")[0]:
+                                ip_address_source = node['ip']
+                                break
+                        packet = (
                         IP(src=ip_address_source, dst=ip_address_des)
                         /
                         TCP(sport=3868, dport=3868, flags="PA")
                         /
                         Raw(diameter_message)
                 )
-                    send(packet)
+                        send(packet)
+                        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                        try:
+                            sock.connect((ip_address_des, 3868))
+                            sock.sendall(diameter_message)
+                            sock.settimeout(1) 
+                            response = sock.recv(4096)
+                        except socket.timeout:
+                            response = None
+                        #wrpcap(f"./pcap_files/{workspace_id}_diameter_test_scapy.pcap", packet)
+            for message in messages:
                 if(message["protocol"]== "GTPv2"):
+                    label = message["label"].split("_")[1]
+                    if "Request" in label:
+                        teid = None
+                    else:
+                        teid = random.randint(0, 0xFFFFFFFF)
                     gtp_header = GTPHeader(
-                            message_type=GTP_MESSAGES["Create Session Request"]["message_type"],
-                            teid=random.randint(0, 0xFFFFFFFF),
-                            seq=random.randint(0, 0xFFFFFF)
-                        )
+                        message_type=GTP_MESSAGES[label]["message_type"],
+                        teid=teid,
+                        seq=random.randint(0, 0xFFFFFF)
+                    )
                     for node in workspace['nodes']:
-                        if node["id"]==message["id"].split("/")[0]:
+                        if message["source"]==node["name"]:
                             ip_address_source = node['ip']
-                        if node["id"]==message["id"].split("/")[1]:
+                        if message["destination"]==node["name"]:
                             ip_address_des = node['ip']
                     imsi_ie = GTPInformationElement(ie_type=1, instance=0, value=bytes.fromhex("01100121436587f9"))
                     apn_ie = GTPInformationElement(
-                            ie_type=71,
-                            instance=0,
-                            value=encode_apn("internet")
-                        )
+                        ie_type=71,
+                        instance=0,
+                        value=encode_apn("internet")
+                    )
                     rat_ie = GTPInformationElement(ie_type=82, instance=0, value=b"\x06")
                     pdn_ie = GTPInformationElement(ie_type=99, instance=0, value=b"\x01")
                     serving_network_ie = GTPInformationElement(ie_type=83, instance=0, value=bytes.fromhex("00f110"))
                             
                     fteid_ie = GTPInformationElement(
-                            ie_type=87,
-                            instance=0,
-                            value=encode_f_teid(
-                                teid=0x12345678,
-                                ipv4=ip_address_source
-                            )
+                        ie_type=87,
+                        instance=0,
+                        value=encode_f_teid(
+                            teid=0x12345678,
+                            ipv4=ip_address_source
                         )
+                    )
                     ebi_ie = GTPInformationElement(
-                            ie_type=73,
-                            instance=0,
-                            value=struct.pack("!B", 5)
-                        )
+                        ie_type=73,
+                        instance=0,
+                        value=struct.pack("!B", 5)
+                    )
                     bearer_fteid = GTPInformationElement(
-                            ie_type=87,
-                            instance=0,
-                            value=encode_f_teid(
-                                teid=0x87654321,
-                                ipv4=ip_address_source
-                            )
+                        ie_type=87,
+                        instance=0,
+                        value=encode_f_teid(
+                            teid=0x87654321,
+                            ipv4=ip_address_source
                         )
+                    )
                     bearer_context_value = (
-                                ebi_ie.encode() +
-                                bearer_fteid.encode()
-                        )
+                        ebi_ie.encode() +
+                        bearer_fteid.encode()
+                    )
 
                     bearer_context_ie = GTPInformationElement(
-                            ie_type=93,
-                            instance=0,
-                            value=bearer_context_value
-                        )
+                        ie_type=93,
+                        instance=0,
+                        value=bearer_context_value
+                    )
                     ambr_ie = GTPInformationElement(
-                            ie_type=72,
-                            instance=0,
-                            value=encode_ambr(
-                                ul=100000,
-                                dl=100000
-                            )
+                        ie_type=72,
+                        instance=0,
+                        value=encode_ambr(
+                            ul=100000,
+                            dl=100000
                         )
+                    )
 
                         
                     gtp_payload = (
-                            imsi_ie.encode() + 
-                            rat_ie.encode() + 
-                            serving_network_ie.encode() + 
-                            fteid_ie.encode() + 
-                            apn_ie.encode() + 
-                            pdn_ie.encode() + 
-                            ambr_ie.encode() + 
-                            bearer_context_ie.encode()
-                        )
+                        imsi_ie.encode() + 
+                        rat_ie.encode() + 
+                        serving_network_ie.encode() + 
+                        fteid_ie.encode() + 
+                        apn_ie.encode() + 
+                        pdn_ie.encode() + 
+                        ambr_ie.encode() + 
+                        bearer_context_ie.encode()
+                    )
 
-                    message_length = 8 + len(gtp_payload)
+                    if gtp_header.teid is None:
+                        message_length = 4 + len(gtp_payload)
+                    else:
+                        message_length = 8 + len(gtp_payload)
 
                     gtp_header = gtp_header.encode(message_length)
                     gtp_packet = gtp_header + gtp_payload
 
                     packet = (
-                            IP(src=ip_address_source, dst=ip_address_des)
-                            / UDP(sport=2123, dport=2123)
-                            / Raw(gtp_packet)
-                        )
-                    send(packet)
-                    response = sr1(packet, timeout=5, verbose=False)
-                    print("GTP Create Session Request sent to " + ip_address_des)
+                        IP(src=ip_address_source, dst=ip_address_des)
+                        / UDP(sport=2123, dport=2123)
+                        / Raw(gtp_packet)
+                    )
+                    response = sr1(packet, timeout=2, verbose=False)
+                    print("GTP Create Session Request sent from " + ip_address_source + " to " + ip_address_des)
                     print(gtp_packet.hex())
                     wrpcap(f"./pcap_files/{workspace_id}_gtp_test_scapy.pcap", packet)
-                    if(response):
-                        responses.append({
-                            "protocol": "GTPv2",
-                            "destination_ip": ip_address_des,
-                            "source": ip_address_source,
-                            "status": "success",
-                            "body": response.summary()
-                        })
-                    else:
-                        responses.append({
-                            "protocol": "GTPv2",
-                            "destination_ip": ip_address_des,
-                            "source": ip_address_source,
-                            "status": "packets sent successfully",
-                            "body": "no response received"
-                })
                 if(message["protocol"]=="S1AP"):
                     for node in workspace['nodes']:
-                        if node["id"]==message["id"].split("/")[0]:
-                            ip_address_source = node['ip']
-                        if node["id"]==message["id"].split("/")[1]:
-                            ip_address_des = node['ip']
-                    pdu = S1AP.S1AP_PDU_Descriptions.S1AP_PDU
-                    pdu.set_val((
+                        if node["name"]=="MME":
+                            ip_address_mme = node['ip']
+                        if node["name"]=="eNB":
+                            ip_address_enb = node['ip']
+                    pdu = S1AP_PDU_Descriptions.S1AP_PDU
+                    if(message["source"].split("-")[0]=="eNB"):
+                        pdu.set_val((
     "initiatingMessage",
     {
         "procedureCode": 17,
@@ -1210,8 +1208,6 @@ def send_packets_with_protocol(workspace_id, interval,data):
             "S1SetupRequest",
             {
                 "protocolIEs": [
-
-                    # Global-ENB-ID
                     {
                         "id": 59,
                         "criticality": "reject",
@@ -1226,8 +1222,6 @@ def send_packets_with_protocol(workspace_id, interval,data):
                             }
                         )
                     },
-
-                    # SupportedTAs
                     {
                         "id": 64,
                         "criticality": "reject",
@@ -1242,35 +1236,191 @@ def send_packets_with_protocol(workspace_id, interval,data):
                                 }
                             ]
                         )
+                    }
+                ]
+            }
+        )
+    }
+))
+
+                        encoded = pdu.to_aper()
+                        ip_address_source = ip_address_enb
+                        ip_address_des = ip_address_mme
+                        sport = 50002
+                        dport = 36412
+                        # 1. SEND INIT CHUNK
+                        # Generate a unique Initial Tag for yourself
+                        my_init_tag = 0xABCDE123 
+                        init_pkt = scapy.IP(src=ip_address_source, dst=ip_address_des) / scapy.SCTP(sport=sport, dport=dport, tag=0) / scapy.SCTPChunkInit(init_tag=my_init_tag, a_rwnd=102400,n_out_streams=10, n_in_streams=10, init_tsn=1000)
+                        init_ack_pkt = scapy.sr1(init_pkt, timeout=2, verbose=False)
+                        mme_init_tag = None
+                        cookie = None
+                        if init_ack_pkt and init_ack_pkt.haslayer(scapy.SCTPChunkInitAck):
+                            # Extract parameters required by the standard to proceed
+                            mme_init_tag = init_ack_pkt[scapy.SCTPChunkInitAck].init_tag
+                            mme_tsn = init_ack_pkt[scapy.SCTPChunkInitAck].init_tsn
+                            cookie = init_ack_pkt[scapy.SCTPChunkInitAck].params
+                            print(f"[*] Received INIT_ACK. MME Tag: {hex(mme_init_tag)}")
+                        cookie_ack_pkt = None
+                        if mme_init_tag and cookie:
+                            cookie_echo_pkt = scapy.IP(src=ip_address_source, dst=ip_address_des) / scapy.SCTP(sport=sport, dport=dport, tag=mme_init_tag) / scapy.SCTPChunkCookieEcho(cookie=cookie)
+                            print("[*] Sending SCTP COOKIE_ECHO...")
+                            cookie_ack_pkt = scapy.sr1(cookie_echo_pkt, timeout=2, verbose=False)
+                        if cookie_ack_pkt and cookie_ack_pkt.haslayer(SCTPChunkCookieAck):
+                            print("[+] SCTP Association Established successfully!")
+                        packet = (
+                            IP(src=ip_address_source, dst=ip_address_des)
+                            /
+                            scapy.SCTP(
+                                sport=sport,
+                                dport=dport,
+                                tag=mme_init_tag
+                            )
+                            /
+                            scapy.SCTPChunkData(
+                                tsn=1000,
+                                stream_id=0,
+                                stream_seq=0,
+                                proto_id=18,
+                                beginning=1,
+                                ending=1,
+                                data=encoded    # S1AP Payload Protocol Identifier (PPID)
+                            )
+                        )
+                        response = sr1(packet, timeout=2, verbose=False)
+                        s1ap_type = "S1SetupRequest"
+                        print("S1AP S1SetupRequest sent from " + ip_address_source + " to " + ip_address_des)
+                    else:
+                        pdu.set_val((
+    "successfulOutcome",
+    {
+        "procedureCode": 17,
+        "criticality": "reject",
+        "value": (
+            "S1SetupResponse",
+            {
+                "protocolIEs": [
+
+                    # -----------------------------------------
+                    # MME Name
+                    # -----------------------------------------
+                    {
+                        "id": 61,
+                        "criticality": "ignore",
+                        "value": (
+                            "MMEname",
+                            "MME"
+                        )
                     },
 
-                    
-                    
+                    # -----------------------------------------
+                    # Served GUMMEIs
+                    # -----------------------------------------
+                    {
+                        "id": 105,
+                        "criticality": "reject",
+                        "value": (
+                            "ServedGUMMEIs",
+                            [
+                                {
+                                    "servedGroupIDs": [
+                                        b"\x00\x01"
+                                    ],
+                                    "servedMMECs": [
+                                        b"\x01"
+                                    ],
+                                    "servedPLMNs": [
+                                        b"\x00\xf1\x10"
+                                    ]
+                                }
+                            ]
+                        )
+                    },
+
+                    # -----------------------------------------
+                    # Relative MME Capacity
+                    # -----------------------------------------
+                    {
+                        "id": 87,
+                        "criticality": "ignore",
+                        "value": (
+                            "RelativeMMECapacity",
+                            255
+                        )
+                    }
 
                 ]
             }
         )
     }
 ))
-                    encoded = pdu.to_aper()
-                    packet = (
+                        encoded = pdu.to_aper()
+                        ip_address_source = ip_address_mme
+                        ip_address_des = ip_address_enb
+                        my_init_tag = 0xABCDE123 
+                        packet = (
                             IP(src=ip_address_source, dst=ip_address_des)
                             /
                             SCTP(
-                                sport=5000,
+                                sport=36412,
                                 dport=36412,
-                                tag=0
+                                tag=my_init_tag
                             )
                             /
                             SCTPChunkData(
-                                tsn=1,
+                                tsn=1000,
                                 stream_id=0,
                                 stream_seq=0,
-                                proto_id=18      # S1AP Payload Protocol Identifier (PPID)
+                                proto_id=18,
+                                beginning=1,
+                                ending=1,
+                                data=encoded        # S1AP Payload Protocol Identifier (PPID)
                             )
-                            /
-                            Raw(encoded)
                         )
+                        response = sr1(packet, timeout=2, verbose=False)
+                        s1ap_type = "S1SetupResponse"
+                        print("S1AP S1SetupResponse sent from " + ip_address_source + " to " + ip_address_des)
+
+                if(message["protocol"]=="GTPv1-U"):
+                    for node in workspace['nodes']:
+                        if message["source"]==node["name"]:
+                            ip_address_source = node['ip']
+                        if message["destination"]==node["name"]:
+                            ip_address_des = node['ip']
+                    teid = 0x12345678
+                    inner_packet = (
+                                        IP(
+                                            src="10.10.10.1",
+                                            dst="10.10.10.2"
+                                           )
+                                        /
+                                        UDP(
+                                            sport=5000,
+                                            dport=5001
+                                            )
+                                        /
+                                            b"Hello UE"
+                                        )
+                    packet = (
+                            IP(
+                                src=ip_address_source,
+                                dst=ip_address_des
+                                )
+                            /
+                            UDP(
+                                sport=2152,
+                                dport=2152
+                                )
+                            /
+                            GTP_U_Header(
+                                teid=teid,
+                                gtp_type=255
+                                )
+                            /
+                            inner_packet
+                        )
+                    response = sr1(packet, timeout=2, verbose=False)
+
 
 
         time.sleep(interval)
@@ -1446,17 +1596,23 @@ def test_nodes_with_protocol_all(workspace_id:str,data:DiameterMessage):
                             "status": "packets sent successfully",
                             "body": "no response received"
                 })
-
+                messages = list(messages_collection.find({"workspace_id":workspace_id}))
+                for message in messages:
                     if(message["protocol"]== "GTPv2"):
+                        label = message["label"].split("_")[1]
+                        if "Request" in label:
+                            teid = None
+                        else:
+                            teid = random.randint(0, 0xFFFFFFFF)
                         gtp_header = GTPHeader(
-                            message_type=GTP_MESSAGES["Create Session Request"]["message_type"],
-                            teid=random.randint(0, 0xFFFFFFFF),
+                            message_type=GTP_MESSAGES[label]["message_type"],
+                            teid=teid,
                             seq=random.randint(0, 0xFFFFFF)
                         )
                         for node in workspace['nodes']:
-                            if node["id"]==message["id"].split("/")[0]:
+                            if message["source"]==node["name"]:
                                 ip_address_source = node['ip']
-                            if node["id"]==message["id"].split("/")[1]:
+                            if message["destination"]==node["name"]:
                                 ip_address_des = node['ip']
                         imsi_ie = GTPInformationElement(ie_type=1, instance=0, value=bytes.fromhex("01100121436587f9"))
                         apn_ie = GTPInformationElement(
@@ -1520,7 +1676,10 @@ def test_nodes_with_protocol_all(workspace_id:str,data:DiameterMessage):
                             bearer_context_ie.encode()
                         )
 
-                        message_length = 8 + len(gtp_payload)
+                        if gtp_header.teid is None:
+                            message_length = 4 + len(gtp_payload)
+                        else:
+                            message_length = 8 + len(gtp_payload)
 
                         gtp_header = gtp_header.encode(message_length)
                         gtp_packet = gtp_header + gtp_payload
@@ -1530,9 +1689,8 @@ def test_nodes_with_protocol_all(workspace_id:str,data:DiameterMessage):
                             / UDP(sport=2123, dport=2123)
                             / Raw(gtp_packet)
                         )
-                        send(packet)
-                        response = sr1(packet, timeout=5, verbose=False)
-                        print("GTP Create Session Request sent to " + ip_address_des)
+                        response = sr1(packet, timeout=2, verbose=False)
+                        print("GTP Create Session Request sent from " + ip_address_source + " to " + ip_address_des)
                         print(gtp_packet.hex())
                         wrpcap(f"./pcap_files/{workspace_id}_gtp_test_scapy.pcap", packet)
                         if(response):
@@ -1553,267 +1711,13 @@ def test_nodes_with_protocol_all(workspace_id:str,data:DiameterMessage):
                 })
                     if(message["protocol"]=="S1AP"):
                         for node in workspace['nodes']:
-                            if node["id"]==message["id"].split("/")[0]:
-                                ip_address_source = node['ip']
-                            if node["id"]==message["id"].split("/")[1]:
-                                ip_address_des = node['ip']
+                            if node["name"]=="MME":
+                                ip_address_mme = node['ip']
+                            if node["name"]=="eNB":
+                                ip_address_enb = node['ip']
                         pdu = S1AP_PDU_Descriptions.S1AP_PDU
-                        pdu.set_val((     "initiatingMessage",     {         "procedureCode": 17,         "criticality": "reject",         "value": (             "S1SetupRequest",             {                 "protocolIEs": [                     {                         "id": 59,                         "criticality": "reject",                         "value": (                             "Global-ENB-ID",                             {                                 "pLMNidentity": b"\x00\xf1\x10",                                 "eNB-ID": (                                     "macroENB-ID",                                     (0x12345, 20)                                 )                             }                         )                     }                 ]             }         )     } ))
-                        encoded = pdu.to_aper()
-                        packet = (
-                            IP(src=ip_address_source, dst=ip_address_des)
-                            /
-                            SCTP(
-                                sport=5000,
-                                dport=36412,
-                                tag=0
-                            )
-                            /
-                            SCTPChunkData(
-                                tsn=1,
-                                stream_id=0,
-                                stream_seq=0,
-                                proto_id=18      # S1AP Payload Protocol Identifier (PPID)
-                            )
-                            /
-                            Raw(encoded)
-                        )
-
-
-
-
-
-        return {"response": responses}
-    else:
-        interval = int(data.frequency[:-1])
-        running_tests_protocol[workspace_id] = True
-        thread = threading.Thread(
-        target=send_packets_with_protocol,
-        args=(workspace_id, interval,data),
-        daemon=True
-    )
-
-        thread.start()
-        return {"response": "Scheduled to run in background every " + str(interval) + " seconds"}
-@app.post("/test_flow_with_protocol/{workspace_id}")
-def test_nodes_with_protocol(workspace_id:str,frequency:Frequency):
-    if frequency.frequency == "once":
-        responses = []
-        messages = list(messages_collection.find({"workspace_id":workspace_id}))
-        if (messages):
-                for message in messages:
-                    response = None
-                    response2 = ""
-                    if(message["protocol"] == "http2"):
-                        destination_ip = message["ip"]
-                        if not destination_ip:
-                            continue
-                        payload = message["MessageContents"]["body"]
-                        try:
-                            if (is_port_open(destination_ip)):
-                                with httpx.Client(http2=True) as client:
-                                    response = client.post(
-                                        f"https://{message['ip']}",
-                                    json=payload
-                                )
-                                print(response.http_version)
-                            else:
-                                response2 = "Simulated node unreachable: port 443 is not open"
-                        except Exception as e:
-                            print("Simulated node unreachable:", e)
-                            response2 = f"Simulated node unreachable: {e}"
-                        if(response):
-                            responses.append({
-                            "message_id": str(message["_id"]),
-                            "protocol": "http2",
-                            "destination_ip": destination_ip,
-                            "label": message.get("label"),
-                            "status_code": response.status_code,
-                            "http_version": response.http_version,
-                            "body": response.text
-                        })
-                        else:
-                            responses.append({
-                            "message_id": str(message["_id"]),
-                            "protocol": "http2",
-                            "destination_ip": destination_ip,
-                            "label": message.get("label"),
-                            "status_code": "Error",
-                            "http_version": "Error",
-                            "body": response2
-                })
-        
-        workspace = workspaces_collection.find_one({"_id": ObjectId(workspace_id)})
-        if (workspace):
-            for message in workspace.get("messages", []):
-                if(message["protocol"]== "GTPv2"):
-                    gtp_header = GTPHeader(
-                        message_type=GTP_MESSAGES["Create Session Request"]["message_type"],
-                        teid=random.randint(0, 0xFFFFFFFF),
-                        seq=random.randint(0, 0xFFFFFF)
-                    )
-                    ip_address_source = ""
-                    ip_address_des = ""
-                    for node in workspace['nodes']:
-                        if node["id"]==message["id"].split("/")[0]:
-                            ip_address_source = node['ip']
-                        if node["id"]==message["id"].split("/")[1]:
-                            ip_address_des = node['ip']
-                    imsi_ie = GTPInformationElement(
-                        ie_type=1,
-                        instance=0,
-                        value=encode_tbcd("001010123456789")
-                    )
-                    apn_ie = GTPInformationElement(
-                        ie_type=71,
-                        instance=0,
-                        value=encode_apn("internet")
-                    )
-                    rat_ie = GTPInformationElement(
-                        ie_type=82,
-                        instance=0,
-                        value=encode_uint8(6)
-                    )
-                    recovery_ie = GTPInformationElement(
-                        ie_type=3,
-                        instance=0,
-                        value=encode_recovery(0)
-                    )
-                    selection_ie = GTPInformationElement(
-                        ie_type=128,
-                        instance=0,
-                        value=encode_selection_mode(0)
-                    )
-                    pdn_ie = GTPInformationElement(
-                        ie_type=99,
-                        instance=0,
-                        value=encode_pdn_type(1)
-                    )
-                    mnc = None
-                    mcc = None
-                    for node in workspace['nodes']:
-                        if node["id"]==message["id"].split("/")[1]:
-                            mnc = node.get('mnc')
-                            mcc = node.get('mcc')
-                            break
-                    if (mnc and mcc):
-                        serving_network_ie = GTPInformationElement(
-                            ie_type=83,
-                            instance=0,
-                            value=encode_serving_network(mcc,mnc)
-                        )
-                    else:
-                        serving_network_ie = GTPInformationElement(
-                            ie_type=83,
-                            instance=0,
-                            value=encode_serving_network("001","01")
-                        )
-                    fteid_ie = GTPInformationElement(
-                        ie_type=87,
-                        instance=0,
-                        value=encode_f_teid(
-                            teid=0x12345678,
-                            ipv4=ip_address_source
-                        )
-                    )
-                    ebi_ie = GTPInformationElement(
-                        ie_type=73,
-                        instance=0,
-                        value=struct.pack("!B", 5)
-                    )
-                    bearer_fteid = GTPInformationElement(
-                        ie_type=87,
-                        instance=0,
-                        value=encode_f_teid(
-                            teid=0x87654321,
-                            ipv4=ip_address_source
-                        )
-                    )
-                    bearer_context_value = (
-                            ebi_ie.encode() +
-                            bearer_fteid.encode()
-                    )
-                    bearer_context_ie = GTPInformationElement(
-                        ie_type=93,
-                        instance=0,
-                        value=bearer_context_value
-                    )
-                    ue_timezone_ie = GTPInformationElement(
-                        ie_type=114,
-                        instance=0,
-                        value=encode_ue_timezone(4,0)
-                    )
-                    apn_restriction_ie = GTPInformationElement(
-                        ie_type=127,
-                        instance=0,
-                        value=encode_apn_restriction(0)
-                    )
-                    ambr_ie = GTPInformationElement(
-                        ie_type=72,
-                        instance=0,
-                        value=encode_ambr(
-                            ul=100000,
-                            dl=100000
-                        )
-                    )
-                    indication_ie = GTPInformationElement(
-                        ie_type=77,
-                        instance=0,
-                        value=encode_indication()
-                    )
-                    ie1 = imsi_ie.encode()
-                    ie2 = apn_ie.encode()
-                    ie3 = rat_ie.encode()
-                    ie4 = recovery_ie.encode()
-                    ie5 = selection_ie.encode()
-                    ie6 = pdn_ie.encode()
-                    ie7 = serving_network_ie.encode()
-                    ie8 = fteid_ie.encode()
-                    ie9 = bearer_context_ie.encode()
-                    ie10 = ue_timezone_ie.encode()
-                    ie11 = apn_restriction_ie.encode()
-                    ie12 = ambr_ie.encode()
-                    ie13 = indication_ie.encode()
-                    gtp_payload = ie1 + ie2 + ie3 + ie4 + ie5 + ie6 + ie7 + ie8 + ie9 + ie10 + ie11 + ie12 + ie13
-                    message_length = 8 + len(gtp_payload)
-                    gtp_header = gtp_header.encode(message_length)
-                    gtp_packet = gtp_header + gtp_payload
-                    packet = (
-                        IP(src=ip_address_source, dst=ip_address_des)
-                        / UDP(sport=2123, dport=2123)
-                        / Raw(gtp_packet)
-                    )
-                    send(packet)
-                    response = sr1(packet, timeout=5, verbose=False)
-                    print("GTP Create Session Request sent to " + ip_address_des)
-                    print(gtp_packet.hex())
-                    wrpcap(f"./pcap_files/{workspace_id}_gtp_test_scapy.pcap", packet)
-                    if(response):
-                        responses.append({
-                        "protocol": "GTPv2",
-                        "destination_ip": ip_address_des,
-                        "source": ip_address_source,
-                        "status": "success",
-                        "body": response.summary()
-                    })
-                    else:
-                        responses.append({
-                        "protocol": "GTPv2",
-                        "destination_ip": ip_address_des,
-                        "source": ip_address_source,
-                        "status": "packets sent successfully",
-                        "body": "no response received"
-                    })
-                if(message["protocol"]=="S1AP"):
-                    ip_address_source = ""
-                    ip_address_des = ""
-                    for node in workspace['nodes']:
-                        if node["id"]==message["id"].split("/")[0]:
-                            ip_address_source = node['ip']
-                        if node["id"]==message["id"].split("/")[1]:
-                            ip_address_des = node['ip']
-                    pdu = S1AP.S1AP_PDU_Descriptions.S1AP_PDU
-                    pdu.set_val((
+                        if(message["source"].split("-")[0]=="eNB"):
+                            pdu.set_val((
     "initiatingMessage",
     {
         "procedureCode": 17,
@@ -1822,8 +1726,6 @@ def test_nodes_with_protocol(workspace_id:str,frequency:Frequency):
             "S1SetupRequest",
             {
                 "protocolIEs": [
-
-                    # Global-ENB-ID
                     {
                         "id": 59,
                         "criticality": "reject",
@@ -1838,8 +1740,6 @@ def test_nodes_with_protocol(workspace_id:str,frequency:Frequency):
                             }
                         )
                     },
-
-                    # SupportedTAs
                     {
                         "id": 64,
                         "criticality": "reject",
@@ -1854,90 +1754,240 @@ def test_nodes_with_protocol(workspace_id:str,frequency:Frequency):
                                 }
                             ]
                         )
+                    }
+                ]
+            }
+        )
+    }
+))
+
+                            encoded = pdu.to_aper()
+                            ip_address_source = ip_address_enb
+                            ip_address_des = ip_address_mme
+                            sport = 50002
+                            dport = 36412
+                            # 1. SEND INIT CHUNK
+                            # Generate a unique Initial Tag for yourself
+                            my_init_tag = 0xABCDE123 
+                            init_pkt = scapy.IP(src=ip_address_source, dst=ip_address_des) / scapy.SCTP(sport=sport, dport=dport, tag=0) / scapy.SCTPChunkInit(init_tag=my_init_tag, a_rwnd=102400,n_out_streams=10, n_in_streams=10, init_tsn=1000)
+                            init_ack_pkt = scapy.sr1(init_pkt, timeout=2, verbose=False)
+                            mme_init_tag = None
+                            cookie = None
+                            if init_ack_pkt and init_ack_pkt.haslayer(scapy.SCTPChunkInitAck):
+                                # Extract parameters required by the standard to proceed
+                                mme_init_tag = init_ack_pkt[scapy.SCTPChunkInitAck].init_tag
+                                mme_tsn = init_ack_pkt[scapy.SCTPChunkInitAck].init_tsn
+                                cookie = init_ack_pkt[scapy.SCTPChunkInitAck].params
+                                print(f"[*] Received INIT_ACK. MME Tag: {hex(mme_init_tag)}")
+                            cookie_ack_pkt = None
+                            if mme_init_tag and cookie:
+                                cookie_echo_pkt = scapy.IP(src=ip_address_source, dst=ip_address_des) / scapy.SCTP(sport=sport, dport=dport, tag=mme_init_tag) / scapy.SCTPChunkCookieEcho(cookie=cookie)
+                                print("[*] Sending SCTP COOKIE_ECHO...")
+                                cookie_ack_pkt = scapy.sr1(cookie_echo_pkt, timeout=2, verbose=False)
+                            if cookie_ack_pkt and cookie_ack_pkt.haslayer(SCTPChunkCookieAck):
+                                print("[+] SCTP Association Established successfully!")
+                            packet = (
+                            IP(src=ip_address_source, dst=ip_address_des)
+                            /
+                            scapy.SCTP(
+                                sport=sport,
+                                dport=dport,
+                                tag=mme_init_tag
+                            )
+                            /
+                            scapy.SCTPChunkData(
+                                tsn=1000,
+                                stream_id=0,
+                                stream_seq=0,
+                                proto_id=18,
+                                beginning=1,
+                                ending=1,
+                                data=encoded    # S1AP Payload Protocol Identifier (PPID)
+                            )
+                        )
+                            response = sr1(packet, timeout=2, verbose=False)
+                            s1ap_type = "S1SetupRequest"
+                            print("S1AP S1SetupRequest sent from " + ip_address_source + " to " + ip_address_des)
+                        else:
+                            pdu.set_val((
+    "successfulOutcome",
+    {
+        "procedureCode": 17,
+        "criticality": "reject",
+        "value": (
+            "S1SetupResponse",
+            {
+                "protocolIEs": [
+
+                    # -----------------------------------------
+                    # MME Name
+                    # -----------------------------------------
+                    {
+                        "id": 61,
+                        "criticality": "ignore",
+                        "value": (
+                            "MMEname",
+                            "MME"
+                        )
                     },
 
-                    
-                    
+                    # -----------------------------------------
+                    # Served GUMMEIs
+                    # -----------------------------------------
+                    {
+                        "id": 105,
+                        "criticality": "reject",
+                        "value": (
+                            "ServedGUMMEIs",
+                            [
+                                {
+                                    "servedGroupIDs": [
+                                        b"\x00\x01"
+                                    ],
+                                    "servedMMECs": [
+                                        b"\x01"
+                                    ],
+                                    "servedPLMNs": [
+                                        b"\x00\xf1\x10"
+                                    ]
+                                }
+                            ]
+                        )
+                    },
+
+                    # -----------------------------------------
+                    # Relative MME Capacity
+                    # -----------------------------------------
+                    {
+                        "id": 87,
+                        "criticality": "ignore",
+                        "value": (
+                            "RelativeMMECapacity",
+                            255
+                        )
+                    }
 
                 ]
             }
         )
     }
 ))
-                    encoded = pdu.to_aper()
-                    load_contrib('sctp')
-                    eNB_vtag = 0x11223344
-                    MME_vtag = 0x55667788
-                    init_bytes = b"\x01\x00\x00\x14\x11\x22\x33\x44\x00\x01\x90\x00\x00\x0a\x00\x0a\x00\x00\x00\x01"
-                    init_pkt = (
-                        IP(ip_address_source, dst=ip_address_des)
-                        / SCTP(sport=sport, dport=dport, tag=eNB_vtag)
-                        / SCTPChunkGeneric(type=1, flags=0, len=20, data=init_bytes[4:])
-                    )
-                    send(init_pkt, verbose=False)
-                    time.sleep(0.05)
-                    init_ack_bytes = b"\x02\x00\x00\x14\x55\x66\x77\x88\x00\x01\x90\x00\x00\x0a\x00\x0a\x00\x00\x00\x01"
-                    init_ack_pkt = (
-                        IP(src=ip_address_source, dst=ip_address_des)
-                        / SCTP(sport=dport, dport=sport, tag=MME_vtag)
-                        / SCTPChunkGeneric(type=2, flags=0, len=20, data=init_ack_bytes[4:])
-                    )
-                    send(init_ack_pkt, verbose=False)
-                    time.sleep(0.05)
-                    packet = (
-                        IP(src=ip_address_source, dst=ip_address_des)
-                        /
-                        SCTP(
-                            sport=5000,
-                            dport=36412,
-                            tag=0x12345678
+                            encoded = pdu.to_aper()
+                            ip_address_source = ip_address_mme
+                            ip_address_des = ip_address_enb
+                            my_init_tag = 0xABCDE123 
+                            packet = (
+                            IP(src=ip_address_source, dst=ip_address_des)
+                            /
+                            SCTP(
+                                sport=36412,
+                                dport=36412,
+                                tag=my_init_tag
+                            )
+                            /
+                            SCTPChunkData(
+                                tsn=1000,
+                                stream_id=0,
+                                stream_seq=0,
+                                proto_id=18,
+                                beginning=1,
+                                ending=1,
+                                data=encoded        # S1AP Payload Protocol Identifier (PPID)
+                            )
                         )
-                        /
-                        SCTPChunkData(
-                            tsn=1,
-                            stream_id=0,
-                            stream_seq=0,
-                            proto_id=18      # S1AP Payload Protocol Identifier (PPID)
+                            response = sr1(packet, timeout=2, verbose=False)
+                            s1ap_type = "S1SetupResponse"
+                            print("S1AP S1SetupResponse sent from " + ip_address_source + " to " + ip_address_des)
+                        if(response):
+                            responses.append({
+                            "protocol": "S1AP",
+                            "destination_ip": ip_address_des,
+                            "source": ip_address_source,
+                            "type": s1ap_type,
+                            "status": "handshake complete and response received",
+                            "body": response.summary()
+                        })
+                        else:
+                            responses.append({
+                            "protocol": "S1AP",
+                            "destination_ip": ip_address_des,
+                            "source": ip_address_source,
+                            "type": s1ap_type,
+                            "status": "packets sent successfully",
+                            "body": "no response received"
+                })
+
+                    if(message["protocol"]=="GTPv1-U"):
+                        for node in workspace['nodes']:
+                            if message["source"]==node["name"]:
+                                ip_address_source = node['ip']
+                            if message["destination"]==node["name"]:
+                                ip_address_des = node['ip']
+                        teid = 0x12345678
+                        inner_packet = (
+                                        IP(
+                                            src="10.10.10.1",
+                                            dst="10.10.10.2"
+                                           )
+                                        /
+                                        UDP(
+                                            sport=5000,
+                                            dport=5001
+                                            )
+                                        /
+                                            b"Hello UE"
+                                        )
+                        packet = (
+                            IP(
+                                src=ip_address_source,
+                                dst=ip_address_des
+                                )
+                            /
+                            UDP(
+                                sport=2152,
+                                dport=2152
+                                )
+                            /
+                            GTP_U_Header(
+                                teid=teid,
+                                gtp_type=255
+                                )
+                            /
+                            inner_packet
                         )
-                        /
-                        Raw(encoded)
-                    )
-                    send(packet)
-                    response = sr1(packet, timeout=1, verbose=False)
-                    if(response):
-                        responses.append({
-                        "protocol": "S1AP",
-                        "destination_ip": ip_address_des,
-                        "source": ip_address_source,
-                        "status": "success",
-                        "body": response.summary()
-                    })
-                    else:
-                        responses.append({
-                        "protocol": "GTPv2",
-                        "destination_ip": ip_address_des,
-                        "source": ip_address_source,
-                        "status": "SCTP packets sent successfully",
-                        "body": "no response received"
-                    })
-                    
-        if not responses:
-            return {"response": "No messages in the workspace"}
-            
+                        response = sr1(packet, timeout=2, verbose=False)
+                        if(response):
+                            responses.append({
+                            "protocol": "GTPv1-U",
+                            "destination_ip": ip_address_des,
+                            "source": ip_address_source,
+                            "type": "GTPv1-U",
+                            "status": "response received",
+                            "body": response.summary()
+                        })
+                        else:
+                            responses.append({
+                            "protocol": "GTPv1-U",
+                            "destination_ip": ip_address_des,
+                            "source": ip_address_source,
+                            "type": "GTPv1-U",
+                            "status": "packets sent successfully",
+                            "body": "no response received"
+                            })
+
+
         return {"response": responses}
     else:
-        interval = int(frequency.frequency[:-1])
+        interval = int(data.frequency[:-1])
         running_tests_protocol[workspace_id] = True
         thread = threading.Thread(
         target=send_packets_with_protocol,
-        args=(workspace_id, interval),
+        args=(workspace_id, interval,data),
         daemon=True
     )
 
         thread.start()
         return {"response": "Scheduled to run in background every " + str(interval) + " seconds"}
-
-
 @app.post("/stop_packets/{workspace_id}")
 def stop_test_flow(workspace_id: str):
     running_tests[workspace_id] = False

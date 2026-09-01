@@ -158,7 +158,7 @@ function Workspace() {
       })
     });
     const data = await response.json();
-    console.log(data.count + "messages added to the database");
+    console.log(callFlowMessages);
     setIsCallFlowSaved(true);
     setTimeout(() => {
       setIsCallFlowSaved(false);
@@ -337,9 +337,11 @@ function Workspace() {
 
       canvas.parentElement.appendChild(nodeEl);
       const connection = document.getElementById(`connection_${uniqueId}`);
-      connection.addEventListener("click", () => {
-        handleConnection(uniqueId);
-      });
+      if (connection) {
+        connection.addEventListener("click", () => {
+          handleConnection(uniqueId);
+        });
+      }
       const configBtn = document.getElementById(`config_${uniqueId}`);
       if (configBtn) {
         configBtn.addEventListener("click", (e) => {
@@ -352,6 +354,7 @@ function Workspace() {
         deleteBtn.addEventListener("click", (e) => {
           e.stopPropagation();
           nodeEl.remove();
+          setHasSavedWorkspace(false);
           setConnections(prev => prev.filter(c => c.from !== uniqueId && c.to !== uniqueId));
           setMessages(prev => prev.filter(m => {
             const parts = m.id ? m.id.split('/') : [];
@@ -560,6 +563,8 @@ function Workspace() {
       defaultProtocol = "S1AP";
     } else if (["S11", "S10", "S5", "S8"].includes(interfaceName)) {
       defaultProtocol = "GTPv2";
+    } else if (["S1_U"].includes(interfaceName)) {
+      defaultProtocol = "GTPv1-U";
     } else if (["N26", "S1", "S3", "S4", "X2", "Xn", "N2"].includes(interfaceName)) {
       defaultProtocol = "MobilityManagement";
     } else if (interfaceName && interfaceName.startsWith("N")) {
@@ -623,6 +628,7 @@ function Workspace() {
     const placedNodes = Array.from(canvas.parentElement.querySelectorAll('.canvas-node'));
     let finalName = nodeData.name;
     if (!nodeData.isPlaced) {
+      setHasSavedWorkspace(false);
       const existingNames = placedNodes.map(node => node.querySelector('span')?.textContent);
       let counter = 1;
       while (existingNames.includes(finalName)) {
@@ -715,9 +721,11 @@ function Workspace() {
     // Append the node to the canvas container (parent of canvas)
     canvas.parentElement.appendChild(nodeEl);
     const connection = document.getElementById(`connection_${uniqueId}`);
-    connection.addEventListener("click", () => {
-      handleConnection(uniqueId);
-    });
+    if (connection) {
+      connection.addEventListener("click", () => {
+        handleConnection(uniqueId);
+      });
+    }
     const configBtn = document.getElementById(`config_${uniqueId}`);
     if (configBtn) {
       configBtn.addEventListener("click", (e) => {
@@ -730,6 +738,7 @@ function Workspace() {
       deleteBtn.addEventListener("click", (e) => {
         e.stopPropagation();
         nodeEl.remove();
+        setHasSavedWorkspace(false);
         setConnections(prev => prev.filter(c => c.from !== uniqueId && c.to !== uniqueId));
         setMessages(prev => prev.filter(m => {
           const parts = m.id ? m.id.split('/') : [];
@@ -923,6 +932,7 @@ function Workspace() {
         setCallFlowMessages([]);
         setSavedNodes([]);
         setNodeConfigs({});
+        setHasSavedWorkspace(false);
       }
       ctx.strokeStyle = "rgba(255,255,255,0.1)";
       for (let x = 0; x <= canvas.width; x += 40) {
@@ -1062,9 +1072,12 @@ function Workspace() {
             <div className="cf-header-bar">
               <h2 className="cf-title">Call Flow Sequence Diagram</h2>
               {(callFlowMessages.length > 0) && (
-                <button className="run-services-btn" onClick={() => setViewMode(viewMode === "services" ? "callFlow" : "services")}>
-                  {viewMode === "services" ? "Back to Call Flow" : "services"}
-                </button>
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                  <button className="test-flow-btn" onClick={() => { navigate(`/Testflow/${workspace_id.id || workspace_id}`) }}>Test Call Flow</button>
+                  <button className="run-services-btn" onClick={() => setViewMode(viewMode === "services" ? "callFlow" : "services")}>
+                    {viewMode === "services" ? "Back to Call Flow" : "services"}
+                  </button>
+                </div>
               )}
               <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
                 {(isServiceAdded) && (
@@ -1239,6 +1252,7 @@ function Workspace() {
                       <button key={idx} onClick={() => {
                         if (targetNodeId) {
                           createConnection(targetNodeId, rootNodeId.current, interface_name);
+                          setHasSavedWorkspace(false);
                         }
                       }} className="save-workspace-btn" style={{ padding: '8px 16px', fontSize: '0.9rem' }}>
                         {conn}
