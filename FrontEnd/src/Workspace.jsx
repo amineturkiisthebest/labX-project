@@ -20,7 +20,7 @@ function Workspace() {
   const [nodeConfigs, setNodeConfigs] = useState({});
   const [ip, setIp] = useState("");
   const [url, setUrl] = useState("");
-  const [mode, setMode] = useState("");
+  const [mode, setMode] = useState("Simulated");
   const [mcc, setMcc] = useState("");
   const [mnc, setMnc] = useState("");
   const [modalMessage, setModalMessage] = useState("");
@@ -46,6 +46,7 @@ function Workspace() {
   const [showServiceConfigModal, setShowServiceConfigModal] = useState(false);
   const [serviceConfigData, setServiceConfigData] = useState(null);
   const [isServiceAdded, setIsServiceAdded] = useState(false);
+  const [nodeSearch, setNodeSearch] = useState("");
 
 
   // Connection Messages State
@@ -122,14 +123,22 @@ function Workspace() {
       });
     }
 
+    const initialDestination = connected.length > 0 ? connected[0] : "";
     setServicesConnectedNodes(connected);
-    setSelectedDestinationNode(connected.length > 0 ? connected[0] : "");
+    setSelectedDestinationNode(initialDestination);
     setSelectedToId(ids.length > 0 ? ids[0] : "");
     setSelectedFromId(cfNode ? cfNode.id : "");
     setSelectedNodeName(node_name);
     setNodeServices(services);
     setShowServicesModal(true);
   }
+
+  const handleDestinationChange = (destinationName) => {
+    const destinationFlowNode = callFlowData.nodes.find(node => node.name === destinationName);
+
+    setSelectedDestinationNode(destinationName);
+    setSelectedToId(destinationFlowNode?.id || "");
+  };
 
   const addService = (service) => {
     setCallFlowMessages(prev => [
@@ -222,6 +231,15 @@ function Workspace() {
     if (test) {
       setHasSavedWorkspace(true);
     }
+        const response2 = await fetch(
+        "http://localhost:8000/open5gs/ues"
+    );
+
+    const data2 = await response2.json();
+
+    console.log(data2);
+
+
   }
 
   const handleDeleteWorkspace = async () => {
@@ -234,40 +252,6 @@ function Workspace() {
     const data = await response.json();
     setShowDeleteModal(false);
     navigate("/home");
-  }
-
-  const generatePDFReport = async () => {
-    const existingConnections = Array.from(connections).map(conn => ({
-      rootNodeName: document.getElementById(conn.from).querySelector('span').textContent,
-      targetNodeName: document.getElementById(conn.to).querySelector('span').textContent,
-      from_id: conn.from,
-      to_id: conn.to,
-      interface_name: conn.interface_name
-    }));
-    const canvas = canvasRef.current;
-    const placedNodes = canvas.parentElement.querySelectorAll('.canvas-node');
-    const nodesData = Array.from(placedNodes).map(node => ({
-      id: node.id,
-      name: node.querySelector('span').textContent,
-      x: parseFloat(node.style.left),
-      y: parseFloat(node.style.top),
-      ip: nodeConfigs[node.id]?.ip || "",
-      url: nodeConfigs[node.id]?.url || "",
-      mode: nodeConfigs[node.id]?.mode || "",
-      mcc: nodeConfigs[node.id]?.mcc || "",
-      mnc: nodeConfigs[node.id]?.mnc || "",
-      configured: nodeConfigs[node.id]?.configured || false,
-      isUnderTest: nodeConfigs[node.id]?.isUnderTest || false
-    }));
-    const response = await fetch(`http://localhost:8000/generate_pdf_report/${workspace_id.id}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ nodesData: nodesData, existingConnections: existingConnections }),
-    });
-    const data = await response.json();
-    setShowTestResultModal(false);
   }
 
 
@@ -503,10 +487,6 @@ function Workspace() {
     });
     const data = await response.json();
     setIsSaved(true);
-    nodesData.forEach(node => {
-      if (!node.configured)
-        test = false;
-    });
     if (test)
       setHasSavedWorkspace(true);
     else
@@ -521,7 +501,7 @@ function Workspace() {
     const currentConfig = nodeConfigsRef.current[nodeId] || {};
     setIp(currentConfig.ip || "");
     setUrl(currentConfig.url || "");
-    setMode(currentConfig.mode || "");
+    setMode(currentConfig.mode || "Simulated");
     setMcc(currentConfig.mcc || "");
     setMnc(currentConfig.mnc || "");
     setNodeConfigError("");
@@ -529,20 +509,15 @@ function Workspace() {
   };
 
   const saveNodeConfig = () => {
-    if (ip) {
-      if (configNodeId) {
-        setNodeConfigs(prev => ({
-          ...prev,
-          [configNodeId]: { ip, url, mode, mcc, mnc, configured: true, isUnderTest: false }
-        }));
-      }
-      console.log(nodeConfigs);
-      setNodeConfigError("");
-      setShowConfigModal(false);
+    if (configNodeId) {
+      setNodeConfigs(prev => ({
+        ...prev,
+        [configNodeId]: { ip, url, mode, mcc, mnc, configured: true, isUnderTest: false }
+      }));
     }
-    else {
-      setNodeConfigError("Please enter a valid IP address");
-    }
+    console.log(nodeConfigs);
+    setNodeConfigError("");
+    setShowConfigModal(false);
   };
 
   const handleConnectionMessages = (fromId, toId, interfaceName) => {
@@ -628,7 +603,6 @@ function Workspace() {
     const placedNodes = Array.from(canvas.parentElement.querySelectorAll('.canvas-node'));
     let finalName = nodeData.name;
     if (!nodeData.isPlaced) {
-      setHasSavedWorkspace(false);
       const existingNames = placedNodes.map(node => node.querySelector('span')?.textContent);
       let counter = 1;
       while (existingNames.includes(finalName)) {
@@ -738,7 +712,6 @@ function Workspace() {
       deleteBtn.addEventListener("click", (e) => {
         e.stopPropagation();
         nodeEl.remove();
-        setHasSavedWorkspace(false);
         setConnections(prev => prev.filter(c => c.from !== uniqueId && c.to !== uniqueId));
         setMessages(prev => prev.filter(m => {
           const parts = m.id ? m.id.split('/') : [];
@@ -1052,17 +1025,29 @@ function Workspace() {
           </div>
           {/* Nodes panel */}
           <div className="node-palette">
-            {nodes.map((node, index) => (
-              <div
-                key={index}
-                className="draggable-node"
-                draggable
-                onDragStart={(e) => handleDragStart(e, node)}
-              >
-                <div className="node-color" />
-                <span>{node.name}</span>
-              </div>
-            ))}
+            <div className="node-search-container">
+              <input
+                type="search"
+                className="node-search"
+                placeholder="Search nodes"
+                value={nodeSearch}
+                onChange={(e) => setNodeSearch(e.target.value)}
+                aria-label="Search nodes"
+              />
+            </div>
+            {nodes
+              .filter(node => node.name.toLowerCase().includes(nodeSearch.trim().toLowerCase()))
+              .map((node, index) => (
+                <div
+                  key={index}
+                  className="draggable-node"
+                  draggable
+                  onDragStart={(e) => handleDragStart(e, node)}
+                >
+                  <div className="node-color" />
+                  <span>{node.name}</span>
+                </div>
+              ))}
           </div>
         </div>
 
@@ -1306,12 +1291,14 @@ function Workspace() {
 
               <div style={{ display: 'flex', flexDirection: 'column', textAlign: 'left', gap: '5px' }}>
                 <label style={{ fontSize: '0.9rem', color: '#ccc' }}>Mode</label>
-                <input
-                  type="text"
+                <select
                   value={mode}
                   onChange={(e) => setMode(e.target.value)}
-                  style={{ padding: '10px', borderRadius: '8px', border: '1px solid var(--glass-border)', background: 'rgba(255,255,255,0.05)', color: '#fff', outline: 'none' }}
-                />
+                  style={{ padding: '10px', borderRadius: '8px', border: '1px solid var(--glass-border)', background: 'rgba(255,255,255,0.05)', color: '#796f6f', outline: 'none' }}
+                >
+                  <option value="Simulated">Simulated</option>
+                  <option value="Available in Open5GS">Available in Open5GS</option>
+                </select>
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', textAlign: 'left', gap: '5px' }}>
@@ -1431,7 +1418,7 @@ function Workspace() {
                 <label style={{ fontSize: '0.9rem', color: '#ccc' }}>Destination Node</label>
                 <select
                   value={selectedDestinationNode}
-                  onChange={(e) => setSelectedDestinationNode(e.target.value)}
+                  onChange={(e) => handleDestinationChange(e.target.value)}
                   style={{
                     padding: '10px',
                     borderRadius: '8px',

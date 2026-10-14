@@ -15,7 +15,6 @@ function Testflow() {
     const [hasStoppedPackets, setHasStoppedPackets] = useState(false);
     const [testMode, setTestMode] = useState(null);
     const [isLoadingProtocol, setIsLoadingProtocol] = useState(false);
-    const [showDiameterOptions, setShowDiameterOptions] = useState(false);
     const [selectedDiameterMsg, setSelectedDiameterMsg] = useState("CER/CEA");
 
     useEffect(() => {
@@ -121,42 +120,11 @@ function Testflow() {
         console.log(data.message)
     };
 
-    const checkDiamterConfig = async () => {
-        setIsLoadingProtocol(true);
-        let data;
-        try {
-            const response = await fetch(`http://localhost:8000/check_diameter_config/${id}`, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                },
-            });
-            data = await response.json();
-        } catch (error) {
-            console.error(error);
-            setIsLoadingProtocol(false);
-            return;
-        }
-        setIsLoadingProtocol(false);
-        if (data.response === "Diameter configuration found") {
-            setShowDiameterOptions(true);
-        }
-        else {
-            executeTestProtocol();
-        }
-    }
 
     const executeTestProtocol = async (diameterMsg = null) => {
-        setShowDiameterOptions(false);
         setIsLoadingProtocol(true);
         let data;
-        const bodyData = { frequency: selectedFrequency };
-        if (diameterMsg) {
-            bodyData.diameter_message = diameterMsg;
-        }
-        else {
-            bodyData.diameter_message = "no_messages";
-        }
+        const bodyData = { frequency: selectedFrequency }
         try {
             const response = await fetch(`http://localhost:8000/test_flow_with_protocol_all/${id}`, {
                 method: "POST",
@@ -190,6 +158,7 @@ function Testflow() {
                         status: resp.status_code === 'Error' ? 'error' : 'success',
                         protocol: resp.protocol,
                         destination_ip: resp.destination_ip,
+                        packet: "packets sent successively",
                         label: resp.label || 'Unknown',
                         status_code: resp.status_code,
                         http_version: resp.http_version,
@@ -238,6 +207,7 @@ function Testflow() {
                         protocol: resp.protocol,
                         destination_ip: resp.destination_ip,
                         source: resp.source,
+                        message: resp.message,
                         status_code: resp.status,
                         body: resp.body
                     };
@@ -305,30 +275,7 @@ function Testflow() {
                         <h2>Test Controls</h2>
                         <p>Initiate packet transmission and validate your call flow configuration. This action will simulate traffic across all configured nodes.</p>
 
-                        {showDiameterOptions ? (
-                            <div className="frequency-options diameter-options">
-                                <h3>Diameter Configuration Detected</h3>
-                                <p className="diameter-desc">It seems that you have configured Diameter connections. What kind of Diameter message do you want to test?</p>
-                                <div className="radio-group">
-                                    <label>
-                                        <input type="radio" value="CER/CEA" checked={selectedDiameterMsg === "CER/CEA"} onChange={(e) => setSelectedDiameterMsg(e.target.value)} />
-                                        Capabilities-Exchange Request/Answer (CER/CEA)
-                                    </label>
-                                    <label>
-                                        <input type="radio" value="DWR/DWA" checked={selectedDiameterMsg === "DWR/DWA"} onChange={(e) => setSelectedDiameterMsg(e.target.value)} />
-                                        Device-Watchdog Request/Answer (DWR/DWA)
-                                    </label>
-                                    <label>
-                                        <input type="radio" value="RAR/RAA" checked={selectedDiameterMsg === "RAR/RAA"} onChange={(e) => setSelectedDiameterMsg(e.target.value)} />
-                                        Re-Auth Request/Answer (RAR/RAA)
-                                    </label>
-                                </div>
-                                <div className="options-actions">
-                                    <button className="confirm-btn" onClick={() => executeTestProtocol(selectedDiameterMsg)} disabled={isLoadingProtocol}>Start Protocol Test</button>
-                                    <button className="cancel-btn" onClick={() => setShowDiameterOptions(false)} disabled={isLoadingProtocol}>Back</button>
-                                </div>
-                            </div>
-                        ) : showOptions ? (
+                        {showOptions ? (
                             <div className="frequency-options">
                                 <h3>Select Transmission Frequency</h3>
                                 <div className="radio-group">
@@ -351,7 +298,7 @@ function Testflow() {
                                 </div>
                                 <div className="options-actions">
                                     <button className="confirm-btn" onClick={executeTest} disabled={isLoadingProtocol}>Connectivity mode (icmp)</button>
-                                    <button className="confirm-btn" style={{ minWidth: '180px' }} onClick={() => checkDiamterConfig()} disabled={isLoadingProtocol}>
+                                    <button className="confirm-btn" style={{ minWidth: '180px' }} onClick={() => executeTestProtocol()} disabled={isLoadingProtocol}>
                                         {isLoadingProtocol ? (
                                             <span style={{ display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'center' }}>
                                                 <div className="spinner" style={{ width: '16px', height: '16px', borderWidth: '2px', display: 'inline-block', margin: 0 }}></div>
@@ -466,7 +413,7 @@ function Testflow() {
                                                 </div>
                                                 <div className="packet-details">
                                                     <div className="packet-req"><span className="packet-tag req">REQ</span> {log.packet}</div>
-                                                    <div className="packet-res"><span className="packet-tag res">RES</span> {log.response || "No response received"}</div>
+                                                    <div className="packet-res"><span className="packet-tag res">RES</span> {log.body || "No response received"}</div>
                                                 </div>
                                             </div>
                                         );
@@ -529,6 +476,7 @@ function Testflow() {
                                                     <span className="packet-protocol">[{log.protocol}]</span>
                                                     <span className={`packet-status ${log.status_code}`}>[{String(log.status_code).toUpperCase()}]</span>
                                                     <span className="packet-dest">From: {log.source} To: {log.destination_ip}</span>
+                                                    <span className="packet-label">({log.message})</span>
                                                 </div>
                                                 <div className="packet-details">
                                                     <div className="packet-req"><span className="packet-tag req">STATUS</span> {log.status_code}</div>
